@@ -10,6 +10,14 @@ import '../widgets/calendar_header.dart';
 import 'add_stream_screen.dart';
 import 'stream_detail_screen.dart';
 
+enum _HomeMenuAction {
+  signIn,
+  copyUid,
+  signOut,
+  notificationSettings,
+  wallpaperSettings,
+}
+
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
 
@@ -17,11 +25,7 @@ class HomeScreen extends ConsumerStatefulWidget {
   ConsumerState<HomeScreen> createState() => _HomeScreenState();
 }
 
-enum _CalendarViewChoice { day, week, month }
-
 class _HomeScreenState extends ConsumerState<HomeScreen> {
-  CalendarView _view = CalendarView.week;
-
   final CalendarController _controller = CalendarController()..view = CalendarView.week;
 
   @override
@@ -30,19 +34,17 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     super.dispose();
   }
 
-  CalendarView _choiceToView(_CalendarViewChoice c) => switch (c) {
-        _CalendarViewChoice.day => CalendarView.day,
-        _CalendarViewChoice.week => CalendarView.week,
-        _CalendarViewChoice.month => CalendarView.month,
-      };
-
   @override
   Widget build(BuildContext context) {
     final streamsAsync = ref.watch(streamsProvider);
 
     return streamsAsync.when(
-      loading: () => const Scaffold(body: Center(child: CircularProgressIndicator())),
-      error: (e, st) => Scaffold(body: Center(child: Text('Load failed: $e'))),
+      loading: () => const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      ),
+      error: (e, st) => Scaffold(
+        body: Center(child: Text('Load failed: $e')),
+      ),
       data: (state) {
         final filtered = _applyFilters(
           state.streams,
@@ -60,34 +62,109 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             actions: [
               IconButton(
                 tooltip: '日',
-                onPressed: () => setState(() {
-                  _view = CalendarView.day;
-                  _controller.view = CalendarView.day;
-                }),
+                onPressed: () => setState(() => _controller.view = CalendarView.day),
                 icon: const Icon(Icons.view_day),
               ),
               IconButton(
                 tooltip: '週',
-                onPressed: () => setState(() {
-                  _view = CalendarView.week;
-                  _controller.view = CalendarView.week;
-                }),
+                onPressed: () => setState(() => _controller.view = CalendarView.week),
                 icon: const Icon(Icons.view_week),
               ),
               IconButton(
                 tooltip: '月',
-                onPressed: () => setState(() {
-                  _view = CalendarView.month;
-                  _controller.view = CalendarView.month;
-                }),
+                onPressed: () => setState(() => _controller.view = CalendarView.month),
                 icon: const Icon(Icons.calendar_month),
+              ),
+              IconButton(
+                tooltip: '今日',
+                onPressed: () => setState(() => _controller.displayDate = DateTime.now()),
+                icon: const Icon(Icons.today),
+              ),
+              PopupMenuButton<_HomeMenuAction>(
+                tooltip: 'メニュー',
+                onSelected: (action) async {
+                  switch (action) {
+                    case _HomeMenuAction.signIn:
+                      try {
+                        await ref.read(authControllerProvider).signInWithGoogle();
+                      } catch (e) {
+                        if (!context.mounted) return;
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text('ログイン失敗: $e')),
+                        );
+                      }
+                      break;
+
+                    case _HomeMenuAction.copyUid:
+                      final user = ref.read(authStateProvider).requireValue;
+                      if (user == null) return;
+                      await Clipboard.setData(ClipboardData(text: user.uid));
+                      if (!context.mounted) return;
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('UIDをコピーした')),
+                      );
+                      break;
+
+                    case _HomeMenuAction.signOut:
+                      await ref.read(authControllerProvider).signOut();
+                      break;
+
+                    case _HomeMenuAction.notificationSettings:
+                      // TODO: 通知設定画面へ push
+                      if (!context.mounted) return;
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('通知設定はこれから実装だよ')),
+                      );
+                      break;
+
+                    case _HomeMenuAction.wallpaperSettings:
+                      // TODO: 壁紙設定画面へ push
+                      if (!context.mounted) return;
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('壁紙設定はこれから実装だよ')),
+                      );
+                      break;
+                  }
+                },
+                itemBuilder: (context) {
+                  final user = ref.watch(authStateProvider).valueOrNull;
+
+                  final items = <PopupMenuEntry<_HomeMenuAction>>[];
+
+                  if (user == null) {
+                    items.add(const PopupMenuItem(
+                      value: _HomeMenuAction.signIn,
+                      child: Text('Googleでログイン'),
+                    ));
+                  } else {
+                    items.add(const PopupMenuItem(
+                      value: _HomeMenuAction.copyUid,
+                      child: Text('UIDをコピー'),
+                    ));
+                    items.add(const PopupMenuItem(
+                      value: _HomeMenuAction.signOut,
+                      child: Text('ログアウト'),
+                    ));
+                  }
+
+                  items.add(const PopupMenuDivider());
+                  items.add(const PopupMenuItem(
+                    value: _HomeMenuAction.notificationSettings,
+                    child: Text('通知設定'),
+                  ));
+                  items.add(const PopupMenuItem(
+                    value: _HomeMenuAction.wallpaperSettings,
+                    child: Text('カレンダー壁紙設定'),
+                  ));
+
+                  return items;
+                },
+                icon: const Icon(Icons.more_vert),
               ),
             ],
           ),
           floatingActionButton: FloatingActionButton(
             onPressed: () async {
-              // Default: open add screen with "current displayed date" if available,
-              // falling back to now. Minutes will be rounded in AddStreamScreen.
               final base = _controller.displayDate ?? DateTime.now();
               await Navigator.of(context).push(
                 MaterialPageRoute(builder: (_) => AddStreamScreen(initialStartAt: base)),
@@ -109,10 +186,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               const Divider(height: 1),
               Expanded(
                 child: SfCalendar(
-                  key: ValueKey(_controller.view), // critical: ensure reliable view switching
+                  key: ValueKey(_controller.view.toString()),
                   controller: _controller,
-                  view: _controller.view!,
                   firstDayOfWeek: 1,
+                  timeRegionBuilder: null,
                   timeSlotViewSettings: const TimeSlotViewSettings(
                     startHour: 0,
                     endHour: 24,
@@ -177,7 +254,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     final streamer = state.streamers.where((s) => s.id == e.streamerId).firstOrNull;
     final color = streamer?.color ?? Colors.grey;
 
-    final end = e.endAt ?? e.startAt.add(const Duration(hours: 1));
+    final end = e.endAt ?? e.startAt.add(const Duration(hours: 2));
 
     return Appointment(
       startTime: e.startAt,
@@ -188,72 +265,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       isAllDay: false,
     );
   }
-}
-
-Widget _authAction(WidgetRef ref, BuildContext context) {
-  final authAsync = ref.watch(authStateProvider);
-  final uid = ref.watch(currentUidProvider);
-
-  return authAsync.when(
-    loading: () => const Padding(
-      padding: EdgeInsets.symmetric(horizontal: 12),
-      child: Center(
-        child: SizedBox(
-          width: 16,
-          height: 16,
-          child: CircularProgressIndicator(strokeWidth: 2),
-        ),
-      ),
-    ),
-    error: (e, st) => IconButton(
-      onPressed: null,
-      icon: const Icon(Icons.error_outline),
-      tooltip: 'Auth error: $e',
-    ),
-    data: (user) {
-      if (user == null) {
-        return TextButton(
-          onPressed: () async {
-            try {
-              await ref.read(authControllerProvider).signInWithGoogle();
-            } catch (e) {
-              if (!context.mounted) return;
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text('ログイン失敗: $e')),
-              );
-            }
-          },
-          child: const Text('Googleでログイン'),
-        );
-      }
-
-      final uid = user.uid;
-
-      return Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          IconButton(
-            tooltip: 'UIDをコピー: $uid',
-            onPressed: () async {
-              await Clipboard.setData(ClipboardData(text: uid));
-              if (!context.mounted) return;
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('UIDをコピーした')),
-              );
-            },
-            icon: const Icon(Icons.copy),
-          ),
-          IconButton(
-            tooltip: 'ログアウト',
-            onPressed: () async {
-              await ref.read(authControllerProvider).signOut();
-            },
-            icon: const Icon(Icons.logout),
-          ),
-        ],
-      );
-    },
-  );
 }
 
 class _StreamCalendarDataSource extends CalendarDataSource {
