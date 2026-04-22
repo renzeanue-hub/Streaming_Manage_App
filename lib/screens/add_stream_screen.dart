@@ -33,6 +33,9 @@ class _AddStreamScreenState extends ConsumerState<AddStreamScreen> {
 
   final _titleController = TextEditingController();
   final _youtubeController = TextEditingController();
+  final _tagController = TextEditingController();
+  final List<String> _tags = [];
+  String _tagQuery = '';
 
   late DateTime _startAt;
 
@@ -44,6 +47,9 @@ class _AddStreamScreenState extends ConsumerState<AddStreamScreen> {
 
     final e = widget.initialEvent;
     if (e != null) {
+      _tags
+        ..clear()
+        ..addAll(e.tags);
       _selectedStreamerId = e.streamerId;
       _titleController.text = e.title;
       _youtubeController.text = e.youtubeWatchUrl ?? '';
@@ -62,12 +68,55 @@ class _AddStreamScreenState extends ConsumerState<AddStreamScreen> {
   void dispose() {
     _titleController.dispose();
     _youtubeController.dispose();
+    _tagController.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(streamsProvider).requireValue;
+
+    final allTagCandidates = <String>{
+      for (final ev in state.streams) ...ev.tags,
+    }.toList()
+      ..sort((a, b) => a.compareTo(b));
+
+    List<String> suggestions() {
+      final q = _tagQuery.trim();
+      if (q.isEmpty) return const [];
+      final lower = q.toLowerCase();
+
+      final filtered = allTagCandidates
+          .where((t) => !_tags.contains(t))
+          .where((t) => t.toLowerCase().contains(lower))
+          .take(10)
+          .toList();
+
+      // 入力中の文字が候補に無いなら「新規追加」枠として先頭に出す
+      final exact = allTagCandidates.any((t) => t.toLowerCase() == lower) ||
+          _tags.any((t) => t.toLowerCase() == lower);
+
+      if (!exact) {
+        filtered.insert(0, q); // 先頭に「q を追加」を出す
+      }
+      return filtered;
+    }
+
+    void addTag(String raw) {
+      final t = raw.trim();
+      if (t.isEmpty) return;
+      if (_tags.any((x) => x.toLowerCase() == t.toLowerCase())) return;
+
+      setState(() {
+        _tags.add(t);
+        _tagController.clear();
+        _tagQuery = '';
+      });
+    }
+
+    void removeTag(String t) {
+      setState(() => _tags.remove(t));
+    }
 
     return Scaffold(
       appBar: AppBar(
@@ -137,6 +186,64 @@ class _AddStreamScreenState extends ConsumerState<AddStreamScreen> {
                 ],
                 onChanged: (v) => setState(() => _category = v ?? _category),
               ),
+
+            const SizedBox(height: 12),
+            Text('タグ', style: Theme.of(context).textTheme.titleSmall),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final t in _tags)
+                  InputChip(
+                    label: Text(t),
+                    onDeleted: () => removeTag(t),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _tagController,
+              decoration: const InputDecoration(
+                labelText: 'タグを追加',
+                hintText: '例: マシュマロ読み / スト6 / 参加型',
+              ),
+              textInputAction: TextInputAction.done,
+              onChanged: (v) => setState(() => _tagQuery = v),
+              onSubmitted: (v) => addTag(v),
+            ),
+            Builder(
+              builder: (context) {
+                final items = suggestions();
+                if (items.isEmpty) return const SizedBox.shrink();
+
+                return Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Material(
+                    elevation: 1,
+                    borderRadius: BorderRadius.circular(12),
+                    child: ListView.separated(
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      itemCount: items.length,
+                      separatorBuilder: (_, __) => const Divider(height: 1),
+                      itemBuilder: (context, i) {
+                        final t = items[i];
+                        final isNew = !allTagCandidates.contains(t);
+
+                        return ListTile(
+                          dense: true,
+                          title: Text(isNew ? '追加: $t' : t),
+                          trailing: const Icon(Icons.add),
+                          onTap: () => addTag(t),
+                        );
+                      },
+                    ),
+                  ),
+                );
+              },
+            ),
+
               const SizedBox(height: 12),
               TextFormField(
                 controller: _youtubeController,
@@ -162,6 +269,7 @@ class _AddStreamScreenState extends ConsumerState<AddStreamScreen> {
                         title: _titleController.text.trim(),
                         startAt: _startAt,
                         categories: [_category],
+                        tags: _tags,
                         youtubeWatchUrl: _youtubeController.text.trim().isEmpty
                             ? null
                             : _youtubeController.text.trim(),
@@ -175,6 +283,7 @@ class _AddStreamScreenState extends ConsumerState<AddStreamScreen> {
                         title: _titleController.text.trim(),
                         startAt: _startAt,
                         categories: [_category],
+                        tags: _tags,
                         youtubeWatchUrl: _youtubeController.text.trim().isEmpty
                             ? null
                             : _youtubeController.text.trim(),
