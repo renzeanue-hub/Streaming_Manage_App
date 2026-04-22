@@ -1,15 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:syncfusion_flutter_calendar/calendar.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 
 import '../models/stream_event.dart';
+import '../providers/auth_provider.dart';
 import '../providers/streams_provider.dart';
 import '../widgets/calendar_header.dart';
 import 'add_stream_screen.dart';
 import 'stream_detail_screen.dart';
-import '../providers/auth_provider.dart';
-
 
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
@@ -24,8 +22,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     final streamsAsync = ref.watch(streamsProvider);
+
     return streamsAsync.when(
-      loading: () => const Scaffold(body: Center(child: CircularProgressIndicator())),
+      loading: () =>
+          const Scaffold(body: Center(child: CircularProgressIndicator())),
       error: (e, st) => Scaffold(body: Center(child: Text('Load failed: $e'))),
       data: (state) {
         final filtered = _applyFilters(
@@ -57,6 +57,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 onPressed: () => setState(() => _view = CalendarView.month),
                 icon: const Icon(Icons.calendar_month),
               ),
+              _authAction(ref, context),
             ],
           ),
           floatingActionButton: FloatingActionButton(
@@ -89,7 +90,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     timeIntervalHeight: 56,
                   ),
                   monthViewSettings: const MonthViewSettings(
-                    appointmentDisplayMode: MonthAppointmentDisplayMode.appointment,
+                    appointmentDisplayMode:
+                        MonthAppointmentDisplayMode.appointment,
                   ),
                   dataSource: dataSource,
                   onTap: (details) {
@@ -98,10 +100,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                         : null;
                     if (app is Appointment && app.notes != null) {
                       final eventId = app.notes!;
-                      final ev = state.streams.where((e) => e.id == eventId).firstOrNull;
+                      final ev = state.streams
+                          .where((e) => e.id == eventId)
+                          .firstOrNull;
                       if (ev != null) {
                         Navigator.of(context).push(
-                          MaterialPageRoute(builder: (_) => StreamDetailScreen(event: ev)),
+                          MaterialPageRoute(
+                            builder: (_) => StreamDetailScreen(event: ev),
+                          ),
                         );
                       }
                     }
@@ -126,13 +132,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   ) {
     return streams.where((e) {
       final okStreamer = streamerIds.isEmpty || streamerIds.contains(e.streamerId);
-      final okCategory = categoryNames.isEmpty || e.categories.any((c) => categoryNames.contains(c.name));
+      final okCategory = categoryNames.isEmpty ||
+          e.categories.any((c) => categoryNames.contains(c.name));
       return okStreamer && okCategory;
     }).toList();
   }
 
   Appointment _toAppointment(StreamEvent e, StreamsState state) {
-    final streamer = state.streamers.where((s) => s.id == e.streamerId).firstOrNull;
+    final streamer =
+        state.streamers.where((s) => s.id == e.streamerId).firstOrNull;
     final color = streamer?.color ?? Colors.grey;
 
     final end = e.endAt ?? e.startAt.add(const Duration(hours: 1));
@@ -146,6 +154,70 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       isAllDay: false,
     );
   }
+}
+
+Widget _authAction(WidgetRef ref, BuildContext context) {
+  final authAsync = ref.watch(authStateProvider);
+  final uid = ref.watch(currentUidProvider);
+
+  return authAsync.when(
+    loading: () => const Padding(
+      padding: EdgeInsets.symmetric(horizontal: 12),
+      child: Center(
+        child: SizedBox(
+          width: 16,
+          height: 16,
+          child: CircularProgressIndicator(strokeWidth: 2),
+        ),
+      ),
+    ),
+    error: (e, st) => IconButton(
+      onPressed: null,
+      icon: const Icon(Icons.error_outline),
+      tooltip: 'Auth error: $e',
+    ),
+    data: (user) {
+      if (user == null) {
+        return TextButton(
+          onPressed: () async {
+            try {
+              await ref.read(authControllerProvider).signInWithGoogle();
+            } catch (e) {
+              if (!context.mounted) return;
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text('ログイン失敗: $e')),
+              );
+            }
+          },
+          child: const Text('Googleでログイン'),
+        );
+      }
+
+      return Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (uid != null)
+            TextButton(
+              onPressed: () async {
+                await ref.read(copyUidProvider)();
+                if (!context.mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('UIDをコピーした')),
+                );
+              },
+              child: Text('UID: ${uid.substring(0, 6)}…'),
+            ),
+          IconButton(
+            tooltip: 'ログアウト',
+            onPressed: () async {
+              await ref.read(authControllerProvider).signOut();
+            },
+            icon: const Icon(Icons.logout),
+          ),
+        ],
+      );
+    },
+  );
 }
 
 class _StreamCalendarDataSource extends CalendarDataSource {
@@ -176,85 +248,6 @@ class _AppointmentTile extends StatelessWidget {
           overflow: TextOverflow.ellipsis,
         ),
       ),
-    );
-  }
-  @override
-  Widget build(BuildContext context) {
-    final streamsAsync = ref.watch(streamsProvider);
-    final authAsync = ref.watch(authStateProvider);
-    final uid = ref.watch(currentUidProvider);
-
-    return streamsAsync.when(
-      loading: () => const Scaffold(body: Center(child: CircularProgressIndicator())),
-      error: (e, st) => Scaffold(body: Center(child: Text('Load failed: $e'))),
-      data: (state) {
-        final filtered = _applyFilters(
-          state.streams,
-          state.selectedStreamerIds,
-          state.selectedCategoryNames,
-        );
-
-        return Scaffold(
-          appBar: AppBar(
-            title: const Text('Streaming Manage App'),
-            actions: [
-              authAsync.when(
-                loading: () => const Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 12),
-                  child: Center(child: SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))),
-                ),
-                error: (e, st) => IconButton(
-                  onPressed: null,
-                  icon: const Icon(Icons.error_outline),
-                  tooltip: 'Auth error: $e',
-                ),
-                data: (user) {
-                  if (user == null) {
-                    return TextButton(
-                      onPressed: () async {
-                        try {
-                          await ref.read(authControllerProvider).signInWithGoogle();
-                        } catch (e) {
-                          if (!context.mounted) return;
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(content: Text('ログイン失敗: $e')),
-                          );
-                        }
-                      },
-                      child: const Text('Googleでログイン'),
-                    );
-                  }
-
-                  return Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      if (uid != null)
-                        TextButton(
-                          onPressed: () async {
-                            await ref.read(copyUidProvider)();
-                            if (!context.mounted) return;
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text('UIDをコピーした')),
-                            );
-                          },
-                          child: Text('UID: ${uid.substring(0, 6)}…'),
-                        ),
-                      IconButton(
-                        tooltip: 'ログアウト',
-                        onPressed: () async {
-                          await ref.read(authControllerProvider).signOut();
-                        },
-                        icon: const Icon(Icons.logout),
-                      ),
-                    ],
-                  );
-                },
-              ),
-            ],
-          ),
-          body: ... // 既存の中身そのまま
-        );
-      },
     );
   }
 }
