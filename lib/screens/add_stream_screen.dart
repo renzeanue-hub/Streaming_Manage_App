@@ -112,21 +112,27 @@ class _AddStreamScreenState extends ConsumerState<AddStreamScreen> {
                 onPressed: () async {
                   if (!_formKey.currentState!.validate()) return;
 
-                  final streamer = state.streamers.firstWhere((s) => s.id == _selectedStreamerId);
+                  try {
+                    final streamer = state.streamers.firstWhere((s) => s.id == _selectedStreamerId);
+                    final event = StreamEvent(
+                      streamerId: streamer.id,
+                      streamerNameSnapshot: streamer.name,
+                      title: _titleController.text.trim(),
+                      startAt: _startAt,
+                      categories: [_category],
+                      youtubeWatchUrl: _youtubeController.text.trim().isEmpty ? null : _youtubeController.text.trim(),
+                      status: StreamStatus.scheduled,
+                    );
 
-                  final event = StreamEvent(
-                    streamerId: streamer.id,
-                    streamerNameSnapshot: streamer.name,
-                    title: _titleController.text.trim(),
-                    startAt: _startAt,
-                    categories: [_category],
-                    youtubeWatchUrl: _youtubeController.text.trim().isEmpty ? null : _youtubeController.text.trim(),
-                    status: StreamStatus.scheduled,
-                  );
+                    await ref.read(streamsProvider.notifier).addStream(event);
 
-                  await ref.read(streamsProvider.notifier).addStream(event);
-
-                  if (mounted) Navigator.of(context).pop();
+                    if (mounted) Navigator.of(context).pop();
+                  } catch (e) {
+                    if (!context.mounted) return;
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('登録失敗: $e')),
+                    );
+                  }
                 },
                 icon: const Icon(Icons.save),
                 label: const Text('登録'),

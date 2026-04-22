@@ -43,7 +43,6 @@ class StreamsController extends AsyncNotifier<StreamsState> {
 
   @override
   Future<StreamsState> build() async {
-    await ref.watch(ensureAnonymousSignInProvider.future);
 
     final streamers = const StreamerRepository().loadFixed();
     final repo = StreamRepositoryFirestore(FirebaseFirestore.instance);
@@ -68,7 +67,9 @@ class StreamsController extends AsyncNotifier<StreamsState> {
   Future<void> addStream(StreamEvent event) async {
     final uid = ref.read(firebaseAuthProvider).currentUser?.uid;
     final repo = StreamRepositoryFirestore(FirebaseFirestore.instance);
-
+    if (uid == null) {
+    throw Exception('追加するにはGoogleログインが必要です');
+    }
     try {
       await repo.add(event, uid: uid);
     } on FirebaseException catch (e) {
