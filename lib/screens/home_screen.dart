@@ -182,7 +182,10 @@ Widget _authAction(WidgetRef ref, BuildContext context) {
           onPressed: () async {
             try {
               await ref.read(authControllerProvider).signInWithGoogle();
-            } catch (e) {
+            } catch (e, st) {
+              debugPrint('LOGIN ERROR: $e');
+              debugPrint('LOGIN STACK: $st');
+
               if (!context.mounted) return;
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(content: Text('ログイン失敗: $e')),
