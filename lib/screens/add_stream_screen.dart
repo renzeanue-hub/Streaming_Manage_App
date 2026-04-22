@@ -139,7 +139,7 @@ class _AddStreamScreenState extends ConsumerState<AddStreamScreen> {
                     ),
                 ],
                 onChanged: widget.isEditMode ? null : (v) => setState(() => _selectedStreamerId = v),
-                validator: (v) => v == null ? '配信者を選んでね' : null,
+                validator: (v) => v == null ? 'メンバーを選択' : null,
               ),
               const SizedBox(height: 12),
               TextFormField(
@@ -206,7 +206,7 @@ class _AddStreamScreenState extends ConsumerState<AddStreamScreen> {
               controller: _tagController,
               decoration: const InputDecoration(
                 labelText: 'タグを追加',
-                hintText: '例: マシュマロ読み / スト6 / 参加型',
+                hintText: 'ゲームタイトルや配信内容を表すタグを入れてみましょう',
               ),
               textInputAction: TextInputAction.done,
               onChanged: (v) => setState(() => _tagQuery = v),

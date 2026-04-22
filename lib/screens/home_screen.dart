@@ -113,7 +113,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                       // TODO: 通知設定画面へ push
                       if (!context.mounted) return;
                       ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('通知設定はこれから実装だよ')),
+                        const SnackBar(content: Text('通知設定は未実装')),
                       );
                       break;
 
@@ -121,7 +121,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                       // TODO: 壁紙設定画面へ push
                       if (!context.mounted) return;
                       ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('壁紙設定はこれから実装だよ')),
+                        const SnackBar(content: Text('壁紙設定は未実装')),
                       );
                       break;
                   }
