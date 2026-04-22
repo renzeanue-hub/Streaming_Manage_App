@@ -196,14 +196,14 @@ export const syncYoutube = onSchedule(
     let touched = 0;
 
     for (const s of streams) {
-      console.log(
-        `[syncYoutube] ${s.id} candidates=${(candidatesByStreamer[s.id] ?? []).length}`
-      );
       const ref = db.collection("streams").doc(s.id);
       const data = s.data;
 
       const streamerId = data.streamerId as StreamerId;
       const plannedStart = data.startAt.toDate();
+      console.log(
+        `[syncYoutube] ${s.id} streamerId=${streamerId} candidates=${(candidatesByStreamer[streamerId] ?? []).length}`
+      );
 
       // A) If already linked -> sync status/time/title/end/archive
       if (data.youtubeVideoId) {

@@ -45,17 +45,26 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             actions: [
               IconButton(
                 tooltip: '日',
-                onPressed: () => setState(() => _view = CalendarView.day),
+                onPressed: () {
+                  debugPrint('tap day');
+                  setState(() => _view = CalendarView.day);
+                },
                 icon: const Icon(Icons.view_day),
               ),
               IconButton(
                 tooltip: '週',
-                onPressed: () => setState(() => _view = CalendarView.week),
+                onPressed: () {
+                  debugPrint('tap week');
+                  setState(() => _view = CalendarView.week);
+               },
                 icon: const Icon(Icons.view_week),
               ),
               IconButton(
                 tooltip: '月',
-                onPressed: () => setState(() => _view = CalendarView.month),
+                onPressed: () {
+                  debugPrint('tap month');
+                  setState(() => _view = CalendarView.month);
+                },
                 icon: const Icon(Icons.calendar_month),
               ),
               _authAction(ref, context),
