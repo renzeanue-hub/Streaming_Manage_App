@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 
 final firebaseAuthProvider = Provider<FirebaseAuth>((ref) {
   return FirebaseAuth.instance;
@@ -30,11 +31,18 @@ class AuthController {
   GoogleSignIn get _google => _ref.read(googleSignInProvider);
 
   Future<void> signInWithGoogle() async {
-    final googleUser = await _google.signIn();
-    if (googleUser == null) {
-      // user cancelled
+    if (kIsWeb) {
+      final provider = GoogleAuthProvider();
+      provider.addScope('email');
+      provider.addScope('profile');
+
+      await _auth.signInWithPopup(provider);
+      await _upsertUserDoc();
       return;
     }
+
+    final googleUser = await _google.signIn();
+    if (googleUser == null) return;
 
     final googleAuth = await googleUser.authentication;
     final credential = GoogleAuthProvider.credential(
@@ -43,7 +51,6 @@ class AuthController {
     );
 
     await _auth.signInWithCredential(credential);
-
     await _upsertUserDoc();
   }
 
