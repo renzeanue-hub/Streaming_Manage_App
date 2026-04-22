@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:syncfusion_flutter_calendar/calendar.dart';
+import 'package:flutter/services.dart';
 
 import '../models/stream_event.dart';
 import '../providers/auth_provider.dart';
@@ -182,22 +183,7 @@ Widget _authAction(WidgetRef ref, BuildContext context) {
           onPressed: () async {
             try {
               await ref.read(authControllerProvider).signInWithGoogle();
-            } catch (e, st) {
-              debugPrint('LOGIN ERROR(runtimeType): ${e.runtimeType}');
-              debugPrint('LOGIN ERROR: $e');
-
-              // ここが大事：boxed error / stack を掘る
-              try {
-                final err = (e as dynamic).error;
-                final stk = (e as dynamic).stack;
-                debugPrint('LOGIN BOXED error: $err');
-                debugPrint('LOGIN BOXED stack: $stk');
-              } catch (_) {
-                // 取れない型なら無視
-              }
-
-              debugPrint('LOGIN DART stack: $st');
-
+            } catch (e) {
               if (!context.mounted) return;
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(content: Text('ログイン失敗: $e')),
@@ -208,20 +194,22 @@ Widget _authAction(WidgetRef ref, BuildContext context) {
         );
       }
 
+      final uid = user.uid;
+
       return Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          if (uid != null)
-            TextButton(
-              onPressed: () async {
-                await ref.read(copyUidProvider)();
-                if (!context.mounted) return;
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('UIDをコピーした')),
-                );
-              },
-              child: Text('UID: ${uid.substring(0, 6)}…'),
-            ),
+          IconButton(
+            tooltip: 'UIDをコピー: $uid',
+            onPressed: () async {
+              await Clipboard.setData(ClipboardData(text: uid));
+              if (!context.mounted) return;
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('UIDをコピーした')),
+              );
+            },
+            icon: const Icon(Icons.copy),
+          ),
           IconButton(
             tooltip: 'ログアウト',
             onPressed: () async {
