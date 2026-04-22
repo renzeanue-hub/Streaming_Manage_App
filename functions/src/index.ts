@@ -261,6 +261,5 @@ export const syncYoutube = onSchedule(
     }
 
     console.log(`syncYoutube done. updatedDocs=${touched}`);
-    
   }
 );
