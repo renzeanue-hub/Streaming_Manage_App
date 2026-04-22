@@ -66,10 +66,11 @@ class StreamsController extends AsyncNotifier<StreamsState> {
 
   Future<void> addStream(StreamEvent event) async {
     final uid = ref.read(firebaseAuthProvider).currentUser?.uid;
-    final repo = StreamRepositoryFirestore(FirebaseFirestore.instance);
+
     if (uid == null) {
-    throw Exception('追加するにはGoogleログインが必要です');
+      throw Exception('追加するにはGoogleログインが必要です');
     }
+    final repo = StreamRepositoryFirestore(FirebaseFirestore.instance);
     try {
       await repo.add(event, uid: uid);
     } on FirebaseException catch (e) {

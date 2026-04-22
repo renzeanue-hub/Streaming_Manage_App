@@ -16,6 +16,17 @@
 	<string>com.example.flutterApplication1</string>
 	<key>PROJECT_ID</key>
 	<string>streaming-manage-app</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>REVERSED_CLIENT_ID</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>com.googleusercontent.apps.1070041794303-l3c44v0flojpnrkapdroamnnd1j5tdi6</string>
+			</array>
+		</dict>
+	</array>
 	<key>STORAGE_BUCKET</key>
 	<string>streaming-manage-app.firebasestorage.app</string>
 	<key>IS_ADS_ENABLED</key>

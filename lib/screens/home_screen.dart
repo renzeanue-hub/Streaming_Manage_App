@@ -8,6 +8,7 @@ import '../providers/streams_provider.dart';
 import '../widgets/calendar_header.dart';
 import 'add_stream_screen.dart';
 import 'stream_detail_screen.dart';
+import '../providers/auth_provider.dart';
 
 
 class HomeScreen extends ConsumerStatefulWidget {
@@ -39,7 +40,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
         return Scaffold(
           appBar: AppBar(
-            title: const Text('配信カレンダー'),
+            title: const Text('VALISカレンダー'),
             actions: [
               IconButton(
                 tooltip: '日',
@@ -175,6 +176,85 @@ class _AppointmentTile extends StatelessWidget {
           overflow: TextOverflow.ellipsis,
         ),
       ),
+    );
+  }
+  @override
+  Widget build(BuildContext context) {
+    final streamsAsync = ref.watch(streamsProvider);
+    final authAsync = ref.watch(authStateProvider);
+    final uid = ref.watch(currentUidProvider);
+
+    return streamsAsync.when(
+      loading: () => const Scaffold(body: Center(child: CircularProgressIndicator())),
+      error: (e, st) => Scaffold(body: Center(child: Text('Load failed: $e'))),
+      data: (state) {
+        final filtered = _applyFilters(
+          state.streams,
+          state.selectedStreamerIds,
+          state.selectedCategoryNames,
+        );
+
+        return Scaffold(
+          appBar: AppBar(
+            title: const Text('Streaming Manage App'),
+            actions: [
+              authAsync.when(
+                loading: () => const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 12),
+                  child: Center(child: SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))),
+                ),
+                error: (e, st) => IconButton(
+                  onPressed: null,
+                  icon: const Icon(Icons.error_outline),
+                  tooltip: 'Auth error: $e',
+                ),
+                data: (user) {
+                  if (user == null) {
+                    return TextButton(
+                      onPressed: () async {
+                        try {
+                          await ref.read(authControllerProvider).signInWithGoogle();
+                        } catch (e) {
+                          if (!context.mounted) return;
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text('ログイン失敗: $e')),
+                          );
+                        }
+                      },
+                      child: const Text('Googleでログイン'),
+                    );
+                  }
+
+                  return Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (uid != null)
+                        TextButton(
+                          onPressed: () async {
+                            await ref.read(copyUidProvider)();
+                            if (!context.mounted) return;
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('UIDをコピーした')),
+                            );
+                          },
+                          child: Text('UID: ${uid.substring(0, 6)}…'),
+                        ),
+                      IconButton(
+                        tooltip: 'ログアウト',
+                        onPressed: () async {
+                          await ref.read(authControllerProvider).signOut();
+                        },
+                        icon: const Icon(Icons.logout),
+                      ),
+                    ],
+                  );
+                },
+              ),
+            ],
+          ),
+          body: ... // 既存の中身そのまま
+        );
+      },
     );
   }
 }
