@@ -22,6 +22,7 @@ class AddStreamScreen extends ConsumerStatefulWidget {
 
 class _AddStreamScreenState extends ConsumerState<AddStreamScreen> {
   final _formKey = GlobalKey<FormState>();
+
   String? _selectedStreamerId;
   StreamCategory _category = StreamCategory.game;
 
@@ -77,6 +78,7 @@ class _AddStreamScreenState extends ConsumerState<AddStreamScreen> {
                       child: Text(s.name),
                     ),
                 ],
+                // 編集時は配信者変更なし（要件でも不要）
                 onChanged: widget.isEditMode ? null : (v) => setState(() => _selectedStreamerId = v),
                 validator: (v) => v == null ? '配信者を選んでね' : null,
               ),
@@ -141,23 +143,36 @@ class _AddStreamScreenState extends ConsumerState<AddStreamScreen> {
                   try {
                     final streamer = state.streamers.firstWhere((s) => s.id == _selectedStreamerId);
 
-                    final updated = StreamEvent(
-                      id: widget.initialEvent?.id, // modelがid持ってないなら消す
-                      streamerId: streamer.id,
-                      streamerNameSnapshot: streamer.name,
-                      title: _titleController.text.trim(),
-                      startAt: _startAt,
-                      categories: [_category],
-                      youtubeWatchUrl: _youtubeController.text.trim().isEmpty ? null : _youtubeController.text.trim(),
-                      status: widget.initialEvent?.status ?? StreamStatus.scheduled,
-                      archiveUrl: widget.initialEvent?.archiveUrl,
-                    );
-
                     if (widget.isEditMode) {
-                      final id = widget.initialEvent!.id!;
-                      await ref.read(streamsProvider.notifier).updateStream(id, updated);
+                      final base = widget.initialEvent!;
+
+                      final updated = base.copyWith(
+                        // streamerId/streamerNameSnapshotも一応保持（配信者変更しない設計）
+                        streamerId: streamer.id,
+                        streamerNameSnapshot: streamer.name,
+                        title: _titleController.text.trim(),
+                        startAt: _startAt,
+                        categories: [_category],
+                        youtubeWatchUrl: _youtubeController.text.trim().isEmpty
+                            ? null
+                            : _youtubeController.text.trim(),
+                      );
+
+                      await ref.read(streamsProvider.notifier).updateStream(updated.id, updated);
                     } else {
-                      await ref.read(streamsProvider.notifier).addStream(updated);
+                      final created = StreamEvent(
+                        streamerId: streamer.id,
+                        streamerNameSnapshot: streamer.name,
+                        title: _titleController.text.trim(),
+                        startAt: _startAt,
+                        categories: [_category],
+                        youtubeWatchUrl: _youtubeController.text.trim().isEmpty
+                            ? null
+                            : _youtubeController.text.trim(),
+                        status: StreamStatus.scheduled,
+                      );
+
+                      await ref.read(streamsProvider.notifier).addStream(created);
                     }
 
                     if (mounted) Navigator.of(context).pop();

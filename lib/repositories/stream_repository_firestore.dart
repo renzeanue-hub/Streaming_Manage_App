@@ -56,6 +56,7 @@ class StreamRepositoryFirestore {
       'updatedAt': FieldValue.serverTimestamp(),
     });
   }
+
   Future<void> update(
     String id, {
     required StreamEvent event,
@@ -64,12 +65,21 @@ class StreamRepositoryFirestore {
     final ref = _db.collection('streams').doc(id);
 
     await ref.update({
-      ...event.toJson(),
+      'streamerId': event.streamerId,
+      'streamerNameSnapshot': event.streamerNameSnapshot,
+      'title': event.title,
+      'startAt': Timestamp.fromDate(event.startAt),
+      'endAt': event.endAt == null ? null : Timestamp.fromDate(event.endAt!),
+      'categories': event.categories.map((c) => c.name).toList(),
+      'tags': event.tags,
+      'youtubeWatchUrl': event.youtubeWatchUrl,
+      'archiveUrl': event.archiveUrl,
+      'status': event.status.name,
+      'note': event.note,
       'updatedBy': uid,
       'updatedAt': FieldValue.serverTimestamp(),
     });
   }
-
   Future<void> delete(
     String id, {
     required String uid,
