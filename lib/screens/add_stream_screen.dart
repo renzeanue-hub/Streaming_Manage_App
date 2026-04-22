@@ -29,8 +29,7 @@ class _AddStreamScreenState extends ConsumerState<AddStreamScreen> {
   final _titleController = TextEditingController();
   final _youtubeController = TextEditingController();
 
-  final now = DateTime.now();
-  DateTime _startAt = DateTime(now.year, now.month, now.day, now.hour + 1, 0);
+  DateTime _startAt = DateTime.now().add(const Duration(hours: 1));
 
   @override
   void initState() {

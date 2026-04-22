@@ -92,6 +92,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               const Divider(height: 1),
               Expanded(
                 child: SfCalendar(
+                  key: ValueKey(_view),
                   view: _view,
                   firstDayOfWeek: 1,
                   timeSlotViewSettings: const TimeSlotViewSettings(
