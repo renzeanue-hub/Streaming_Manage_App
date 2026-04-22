@@ -10,9 +10,14 @@ class AddStreamScreen extends ConsumerStatefulWidget {
   const AddStreamScreen({
     super.key,
     this.initialEvent,
+    this.initialStartAt,
   });
 
   final StreamEvent? initialEvent;
+
+  /// Opened from calendar empty-cell tap or FAB default.
+  /// Ignored in edit mode.
+  final DateTime? initialStartAt;
 
   bool get isEditMode => initialEvent != null;
 
@@ -29,7 +34,9 @@ class _AddStreamScreenState extends ConsumerState<AddStreamScreen> {
   final _titleController = TextEditingController();
   final _youtubeController = TextEditingController();
 
-  DateTime _startAt = DateTime.now().add(const Duration(hours: 1));
+  late DateTime _startAt;
+
+  DateTime _roundMinutesTo00(DateTime dt) => DateTime(dt.year, dt.month, dt.day, dt.hour, 0);
 
   @override
   void initState() {
@@ -44,7 +51,11 @@ class _AddStreamScreenState extends ConsumerState<AddStreamScreen> {
       if (e.categories.isNotEmpty) {
         _category = e.categories.first;
       }
+      return;
     }
+
+    final base = widget.initialStartAt ?? DateTime.now();
+    _startAt = _roundMinutesTo00(base);
   }
 
   @override
@@ -78,7 +89,6 @@ class _AddStreamScreenState extends ConsumerState<AddStreamScreen> {
                       child: Text(s.name),
                     ),
                 ],
-                // 編集時は配信者変更なし（要件でも不要）
                 onChanged: widget.isEditMode ? null : (v) => setState(() => _selectedStreamerId = v),
                 validator: (v) => v == null ? '配信者を選んでね' : null,
               ),
@@ -147,7 +157,6 @@ class _AddStreamScreenState extends ConsumerState<AddStreamScreen> {
                       final base = widget.initialEvent!;
 
                       final updated = base.copyWith(
-                        // streamerId/streamerNameSnapshotも一応保持（配信者変更しない設計）
                         streamerId: streamer.id,
                         streamerNameSnapshot: streamer.name,
                         title: _titleController.text.trim(),
