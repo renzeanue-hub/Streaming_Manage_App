@@ -183,8 +183,20 @@ Widget _authAction(WidgetRef ref, BuildContext context) {
             try {
               await ref.read(authControllerProvider).signInWithGoogle();
             } catch (e, st) {
+              debugPrint('LOGIN ERROR(runtimeType): ${e.runtimeType}');
               debugPrint('LOGIN ERROR: $e');
-              debugPrint('LOGIN STACK: $st');
+
+              // ここが大事：boxed error / stack を掘る
+              try {
+                final err = (e as dynamic).error;
+                final stk = (e as dynamic).stack;
+                debugPrint('LOGIN BOXED error: $err');
+                debugPrint('LOGIN BOXED stack: $stk');
+              } catch (_) {
+                // 取れない型なら無視
+              }
+
+              debugPrint('LOGIN DART stack: $st');
 
               if (!context.mounted) return;
               ScaffoldMessenger.of(context).showSnackBar(
