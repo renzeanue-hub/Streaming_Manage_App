@@ -56,4 +56,28 @@ class StreamRepositoryFirestore {
       'updatedAt': FieldValue.serverTimestamp(),
     });
   }
+  Future<void> update(
+    String id, {
+    required StreamEvent event,
+    required String uid,
+  }) async {
+    final ref = _db.collection('streams').doc(id);
+
+    await ref.update({
+      ...event.toJson(),
+      'updatedBy': uid,
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  Future<void> delete(
+    String id, {
+    required String uid,
+  }) async {
+    final ref = _db.collection('streams').doc(id);
+
+    // 監査用に残したいなら update+delete の順でもいいけど、
+    // ここは要件通り削除のみ。
+    await ref.delete();
+  }
 }

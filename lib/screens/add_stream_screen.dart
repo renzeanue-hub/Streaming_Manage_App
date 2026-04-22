@@ -7,7 +7,14 @@ import '../models/stream_status.dart';
 import '../providers/streams_provider.dart';
 
 class AddStreamScreen extends ConsumerStatefulWidget {
-  const AddStreamScreen({super.key});
+  const AddStreamScreen({
+    super.key,
+    this.initialEvent,
+  });
+
+  final StreamEvent? initialEvent;
+
+  bool get isEditMode => initialEvent != null;
 
   @override
   ConsumerState<AddStreamScreen> createState() => _AddStreamScreenState();
@@ -24,6 +31,22 @@ class _AddStreamScreenState extends ConsumerState<AddStreamScreen> {
   DateTime _startAt = DateTime.now().add(const Duration(hours: 1));
 
   @override
+  void initState() {
+    super.initState();
+
+    final e = widget.initialEvent;
+    if (e != null) {
+      _selectedStreamerId = e.streamerId;
+      _titleController.text = e.title;
+      _youtubeController.text = e.youtubeWatchUrl ?? '';
+      _startAt = e.startAt;
+      if (e.categories.isNotEmpty) {
+        _category = e.categories.first;
+      }
+    }
+  }
+
+  @override
   void dispose() {
     _titleController.dispose();
     _youtubeController.dispose();
@@ -35,7 +58,9 @@ class _AddStreamScreenState extends ConsumerState<AddStreamScreen> {
     final state = ref.watch(streamsProvider).requireValue;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('配信を追加')),
+      appBar: AppBar(
+        title: Text(widget.isEditMode ? '配信を編集' : '配信を追加'),
+      ),
       body: Padding(
         padding: const EdgeInsets.all(16),
         child: Form(
@@ -44,6 +69,7 @@ class _AddStreamScreenState extends ConsumerState<AddStreamScreen> {
             children: [
               DropdownButtonFormField<String>(
                 decoration: const InputDecoration(labelText: '配信者'),
+                value: _selectedStreamerId,
                 items: [
                   for (final s in state.streamers)
                     DropdownMenuItem(
@@ -51,7 +77,7 @@ class _AddStreamScreenState extends ConsumerState<AddStreamScreen> {
                       child: Text(s.name),
                     ),
                 ],
-                onChanged: (v) => setState(() => _selectedStreamerId = v),
+                onChanged: widget.isEditMode ? null : (v) => setState(() => _selectedStreamerId = v),
                 validator: (v) => v == null ? '配信者を選んでね' : null,
               ),
               const SizedBox(height: 12),
@@ -114,28 +140,36 @@ class _AddStreamScreenState extends ConsumerState<AddStreamScreen> {
 
                   try {
                     final streamer = state.streamers.firstWhere((s) => s.id == _selectedStreamerId);
-                    final event = StreamEvent(
+
+                    final updated = StreamEvent(
+                      id: widget.initialEvent?.id, // modelがid持ってないなら消す
                       streamerId: streamer.id,
                       streamerNameSnapshot: streamer.name,
                       title: _titleController.text.trim(),
                       startAt: _startAt,
                       categories: [_category],
                       youtubeWatchUrl: _youtubeController.text.trim().isEmpty ? null : _youtubeController.text.trim(),
-                      status: StreamStatus.scheduled,
+                      status: widget.initialEvent?.status ?? StreamStatus.scheduled,
+                      archiveUrl: widget.initialEvent?.archiveUrl,
                     );
 
-                    await ref.read(streamsProvider.notifier).addStream(event);
+                    if (widget.isEditMode) {
+                      final id = widget.initialEvent!.id!;
+                      await ref.read(streamsProvider.notifier).updateStream(id, updated);
+                    } else {
+                      await ref.read(streamsProvider.notifier).addStream(updated);
+                    }
 
                     if (mounted) Navigator.of(context).pop();
                   } catch (e) {
                     if (!context.mounted) return;
                     ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('登録失敗: $e')),
+                      SnackBar(content: Text(widget.isEditMode ? '更新失敗: $e' : '登録失敗: $e')),
                     );
                   }
                 },
-                icon: const Icon(Icons.save),
-                label: const Text('登録'),
+                icon: Icon(widget.isEditMode ? Icons.save_as : Icons.save),
+                label: Text(widget.isEditMode ? '更新' : '登録'),
               ),
             ],
           ),

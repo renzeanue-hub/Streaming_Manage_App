@@ -89,6 +89,39 @@ class StreamsController extends AsyncNotifier<StreamsState> {
   Future<void> setCategoryFilter(Set<String> categoryNames) async {
     state = AsyncData(state.requireValue.copyWith(selectedCategoryNames: categoryNames));
   }
+  Future<void> updateStream(String id, StreamEvent event) async {
+    final uid = ref.read(firebaseAuthProvider).currentUser?.uid;
+    if (uid == null) {
+      throw Exception('更新するにはGoogleログインが必要です');
+    }
+
+    final repo = StreamRepositoryFirestore(FirebaseFirestore.instance);
+    try {
+      await repo.update(id, event: event, uid: uid);
+    } on FirebaseException catch (e) {
+      if (e.code == 'permission-denied') {
+        throw Exception('このアカウントは編集権限がありません');
+      }
+      rethrow;
+    }
+  }
+
+  Future<void> deleteStream(String id) async {
+    final uid = ref.read(firebaseAuthProvider).currentUser?.uid;
+    if (uid == null) {
+      throw Exception('削除するにはGoogleログインが必要です');
+    }
+
+    final repo = StreamRepositoryFirestore(FirebaseFirestore.instance);
+    try {
+      await repo.delete(id, uid: uid);
+    } on FirebaseException catch (e) {
+      if (e.code == 'permission-denied') {
+        throw Exception('このアカウントは編集権限がありません');
+      }
+      rethrow;
+    }
+  }
 }
 
 final streamsProvider = AsyncNotifierProvider<StreamsController, StreamsState>(
