@@ -17,16 +17,38 @@ class HomeScreen extends ConsumerStatefulWidget {
   ConsumerState<HomeScreen> createState() => _HomeScreenState();
 }
 
+enum _CalendarViewChoice { day, week, month }
+
 class _HomeScreenState extends ConsumerState<HomeScreen> {
   CalendarView _view = CalendarView.week;
+
+  final CalendarController _controller = CalendarController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  CalendarView _choiceToView(_CalendarViewChoice c) => switch (c) {
+        _CalendarViewChoice.day => CalendarView.day,
+        _CalendarViewChoice.week => CalendarView.week,
+        _CalendarViewChoice.month => CalendarView.month,
+      };
+
+  String _viewLabel(CalendarView v) => switch (v) {
+        CalendarView.day => '日',
+        CalendarView.week => '週',
+        CalendarView.month => '月',
+        _ => '表示',
+      };
 
   @override
   Widget build(BuildContext context) {
     final streamsAsync = ref.watch(streamsProvider);
 
     return streamsAsync.when(
-      loading: () =>
-          const Scaffold(body: Center(child: CircularProgressIndicator())),
+      loading: () => const Scaffold(body: Center(child: CircularProgressIndicator())),
       error: (e, st) => Scaffold(body: Center(child: Text('Load failed: $e'))),
       data: (state) {
         final filtered = _applyFilters(
@@ -44,36 +66,42 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             title: const Text('VALISカレンダー'),
             actions: [
               IconButton(
-                tooltip: '日',
+                tooltip: '今日',
                 onPressed: () {
-                  debugPrint('tap day');
-                  setState(() => _view = CalendarView.day);
+                  // Jump back to today; keep current view.
+                  setState(() {
+                    _controller.displayDate = DateTime.now();
+                  });
                 },
-                icon: const Icon(Icons.view_day),
+                icon: const Icon(Icons.today),
               ),
-              IconButton(
-                tooltip: '週',
-                onPressed: () {
-                  debugPrint('tap week');
-                  setState(() => _view = CalendarView.week);
-               },
-                icon: const Icon(Icons.view_week),
-              ),
-              IconButton(
-                tooltip: '月',
-                onPressed: () {
-                  debugPrint('tap month');
-                  setState(() => _view = CalendarView.month);
+              PopupMenuButton<_CalendarViewChoice>(
+                tooltip: '表示切替',
+                onSelected: (c) {
+                  setState(() {
+                    _view = _choiceToView(c);
+                  });
                 },
-                icon: const Icon(Icons.calendar_month),
+                itemBuilder: (context) => const [
+                  PopupMenuItem(value: _CalendarViewChoice.day, child: Text('日')),
+                  PopupMenuItem(value: _CalendarViewChoice.week, child: Text('週')),
+                  PopupMenuItem(value: _CalendarViewChoice.month, child: Text('月')),
+                ],
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  child: Center(child: Text(_viewLabel(_view))),
+                ),
               ),
               _authAction(ref, context),
             ],
           ),
           floatingActionButton: FloatingActionButton(
             onPressed: () async {
+              // Default: open add screen with "current displayed date" if available,
+              // falling back to now. Minutes will be rounded in AddStreamScreen.
+              final base = _controller.displayDate ?? DateTime.now();
               await Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const AddStreamScreen()),
+                MaterialPageRoute(builder: (_) => AddStreamScreen(initialStartAt: base)),
               );
             },
             child: const Icon(Icons.add),
@@ -92,7 +120,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               const Divider(height: 1),
               Expanded(
                 child: SfCalendar(
-                  key: ValueKey(_view),
+                  key: ValueKey(_view), // critical: ensure reliable view switching
+                  controller: _controller,
                   view: _view,
                   firstDayOfWeek: 1,
                   timeSlotViewSettings: const TimeSlotViewSettings(
@@ -101,26 +130,33 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     timeIntervalHeight: 56,
                   ),
                   monthViewSettings: const MonthViewSettings(
-                    appointmentDisplayMode:
-                        MonthAppointmentDisplayMode.appointment,
+                    showNavigationArrow: true,
+                    appointmentDisplayMode: MonthAppointmentDisplayMode.appointment,
                   ),
                   dataSource: dataSource,
-                  onTap: (details) {
+                  onTap: (details) async {
                     final app = details.appointments?.isNotEmpty == true
                         ? details.appointments!.first
                         : null;
+
+                    // Appointment tap -> detail
                     if (app is Appointment && app.notes != null) {
                       final eventId = app.notes!;
-                      final ev = state.streams
-                          .where((e) => e.id == eventId)
-                          .firstOrNull;
+                      final ev = state.streams.where((e) => e.id == eventId).firstOrNull;
                       if (ev != null) {
-                        Navigator.of(context).push(
-                          MaterialPageRoute(
-                            builder: (_) => StreamDetailScreen(event: ev),
-                          ),
+                        await Navigator.of(context).push(
+                          MaterialPageRoute(builder: (_) => StreamDetailScreen(event: ev)),
                         );
                       }
+                      return;
+                    }
+
+                    // Empty slot tap -> create new with tapped datetime
+                    final tapped = details.date;
+                    if (tapped != null) {
+                      await Navigator.of(context).push(
+                        MaterialPageRoute(builder: (_) => AddStreamScreen(initialStartAt: tapped)),
+                      );
                     }
                   },
                   appointmentBuilder: (context, details) {
@@ -150,8 +186,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   }
 
   Appointment _toAppointment(StreamEvent e, StreamsState state) {
-    final streamer =
-        state.streamers.where((s) => s.id == e.streamerId).firstOrNull;
+    final streamer = state.streamers.where((s) => s.id == e.streamerId).firstOrNull;
     final color = streamer?.color ?? Colors.grey;
 
     final end = e.endAt ?? e.startAt.add(const Duration(hours: 1));
