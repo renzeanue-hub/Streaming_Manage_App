@@ -22,7 +22,7 @@ enum _CalendarViewChoice { day, week, month }
 class _HomeScreenState extends ConsumerState<HomeScreen> {
   CalendarView _view = CalendarView.week;
 
-  final CalendarController _controller = CalendarController();
+  final CalendarController _controller = CalendarController()..view = CalendarView.week;
 
   @override
   void dispose() {
@@ -34,13 +34,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         _CalendarViewChoice.day => CalendarView.day,
         _CalendarViewChoice.week => CalendarView.week,
         _CalendarViewChoice.month => CalendarView.month,
-      };
-
-  String _viewLabel(CalendarView v) => switch (v) {
-        CalendarView.day => '日',
-        CalendarView.week => '週',
-        CalendarView.month => '月',
-        _ => '表示',
       };
 
   @override
@@ -66,33 +59,29 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             title: const Text('VALISカレンダー'),
             actions: [
               IconButton(
-                tooltip: '今日',
-                onPressed: () {
-                  // Jump back to today; keep current view.
-                  setState(() {
-                    _controller.displayDate = DateTime.now();
-                  });
-                },
-                icon: const Icon(Icons.today),
+                tooltip: '日',
+                onPressed: () => setState(() {
+                  _view = CalendarView.day;
+                  _controller.view = CalendarView.day;
+                }),
+                icon: const Icon(Icons.view_day),
               ),
-              PopupMenuButton<_CalendarViewChoice>(
-                tooltip: '表示切替',
-                onSelected: (c) {
-                  setState(() {
-                    _view = _choiceToView(c);
-                  });
-                },
-                itemBuilder: (context) => const [
-                  PopupMenuItem(value: _CalendarViewChoice.day, child: Text('日')),
-                  PopupMenuItem(value: _CalendarViewChoice.week, child: Text('週')),
-                  PopupMenuItem(value: _CalendarViewChoice.month, child: Text('月')),
-                ],
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                  child: Center(child: Text(_viewLabel(_view))),
-                ),
+              IconButton(
+                tooltip: '週',
+                onPressed: () => setState(() {
+                  _view = CalendarView.week;
+                  _controller.view = CalendarView.week;
+                }),
+                icon: const Icon(Icons.view_week),
               ),
-              _authAction(ref, context),
+              IconButton(
+                tooltip: '月',
+                onPressed: () => setState(() {
+                  _view = CalendarView.month;
+                  _controller.view = CalendarView.month;
+                }),
+                icon: const Icon(Icons.calendar_month),
+              ),
             ],
           ),
           floatingActionButton: FloatingActionButton(
@@ -120,9 +109,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               const Divider(height: 1),
               Expanded(
                 child: SfCalendar(
-                  key: ValueKey(_view), // critical: ensure reliable view switching
+                  key: ValueKey(_controller.view), // critical: ensure reliable view switching
                   controller: _controller,
-                  view: _view,
+                  view: _controller.view!,
                   firstDayOfWeek: 1,
                   timeSlotViewSettings: const TimeSlotViewSettings(
                     startHour: 0,
@@ -130,7 +119,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     timeIntervalHeight: 56,
                   ),
                   monthViewSettings: const MonthViewSettings(
-                    showNavigationArrow: true,
                     appointmentDisplayMode: MonthAppointmentDisplayMode.appointment,
                   ),
                   dataSource: dataSource,
