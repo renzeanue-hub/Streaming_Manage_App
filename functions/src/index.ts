@@ -8,13 +8,10 @@ initializeApp();
 const db = getFirestore();
 const YOUTUBE_API_KEY = defineSecret("YOUTUBE_API_KEY");
 
-// ---- Config (fixed 4 streamers) ----
+// ---- Config ----
 type StreamerId = "rara" | "chino" | "neffy" | "vitte";
 
-const STREAMERS: Array<{
-  id: StreamerId;
-  handle: string; // without '@'
-}> = [
+const STREAMERS: Array<{id: StreamerId; handle: string}> = [
   {id: "rara", handle: "v-rara"},
   {id: "chino", handle: "v-chino"},
   {id: "neffy", handle: "v-neffy"},
@@ -23,11 +20,10 @@ const STREAMERS: Array<{
 
 const MATCH_WINDOW_MINUTES = 20;
 
-// ---- YouTube minimal types ----
-type YouTubeSearchItem = {
-  id: { kind: string; videoId?: string };
-};
+// streamer_meta キャッシュの有効期限（24時間）
+const META_TTL_MS = 24 * 60 * 60 * 1000;
 
+// ---- YouTube minimal types ----
 type YouTubeVideosItem = {
   id: string;
   snippet?: {
@@ -45,6 +41,27 @@ type YouTubeVideosItem = {
   };
 };
 
+// ---- Firestore doc shapes ----
+type StreamerMeta = {
+  channelId: string;
+  uploadsPlaylistId: string;
+  cachedAt: FirebaseFirestore.Timestamp;
+};
+
+type StreamDoc = {
+  streamerId: string;
+  title: string;
+  startAt: FirebaseFirestore.Timestamp;
+  youtubeVideoId?: string | null;
+  youtubeWatchUrl?: string | null;
+  archiveUrl?: string | null;
+  status?: string | null;
+  syncedStartAt?: FirebaseFirestore.Timestamp | null;
+  endAt?: FirebaseFirestore.Timestamp | null;
+  updatedAt?: FirebaseFirestore.Timestamp | null;
+};
+
+// ---- Utils ----
 function minutesDiff(a: Date, b: Date): number {
   return Math.abs(a.getTime() - b.getTime()) / 60000;
 }
@@ -57,81 +74,120 @@ async function ytGetJson<T>(url: string): Promise<T> {
   const res = await fetch(url);
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(`YouTube API error: ${res.status} ${res.statusText} :: ${text}`);
+    throw new Error(
+      `YouTube API error: ${res.status} ${res.statusText} :: ${text}`
+    );
   }
   return (await res.json()) as T;
 }
 
-// Resolve @handle -> channelId using channels.list?forHandle=...
-async function resolveChannelIdForHandle(apiKey: string, handle: string): Promise<string> {
+// ---- Firestore キャッシュ付き channelId / uploadsPlaylistId 解決 ----
+// channels.list を 1unit で叩いて channelId と uploadsPlaylistId を両方取得し
+// streamer_meta/{streamerId} にキャッシュ。TTL 内は Firestore から読むだけ（0 unit）
+async function resolveStreamerMeta(
+  apiKey: string,
+  streamerId: string,
+  handle: string
+): Promise<{channelId: string; uploadsPlaylistId: string}> {
+  const ref = db.collection("streamer_meta").doc(streamerId);
+  const snap = await ref.get();
+
+  if (snap.exists) {
+    const cached = snap.data() as StreamerMeta;
+    const ageMs = Date.now() - cached.cachedAt.toMillis();
+    if (ageMs < META_TTL_MS) {
+      console.log(`[meta] cache hit: ${streamerId}`);
+      return {
+        channelId: cached.channelId,
+        uploadsPlaylistId: cached.uploadsPlaylistId,
+      };
+    }
+  }
+
+  // キャッシュ切れ or 初回 → YouTube API を叩く（1 unit）
+  console.log(`[meta] fetching from YouTube API: @${handle}`);
   const url =
     "https://www.googleapis.com/youtube/v3/channels" +
-    `?part=id&forHandle=${encodeURIComponent(handle)}&key=${encodeURIComponent(apiKey)}`;
-
-  const data = await ytGetJson<{ items?: Array<{ id: string }> }>(url);
-  const id = data.items?.[0]?.id;
-  if (!id) throw new Error(`Unable to resolve channelId for handle @${handle}`);
-  return id;
-}
-
-// Search upcoming/live videos for a channel
-async function searchVideos(
-  apiKey: string,
-  channelId: string,
-  eventType: "upcoming" | "live"
-): Promise<string[]> {
-  const url =
-    "https://www.googleapis.com/youtube/v3/search" +
-    `?part=id&channelId=${encodeURIComponent(channelId)}` +
-    `&eventType=${encodeURIComponent(eventType)}` +
-    "&type=video&maxResults=10&order=date" +
+    `?part=id,contentDetails&forHandle=${encodeURIComponent(handle)}` +
     `&key=${encodeURIComponent(apiKey)}`;
 
-  const data = await ytGetJson<{ items?: YouTubeSearchItem[] }>(url);
+  const data = await ytGetJson<{
+    items?: Array<{
+      id: string;
+      contentDetails?: {relatedPlaylists?: {uploads?: string}};
+    }>;
+  }>(url);
+
+  const item = data.items?.[0];
+  if (!item?.id) throw new Error(`Cannot resolve channelId for @${handle}`);
+
+  const channelId = item.id;
+  const uploadsPlaylistId = item.contentDetails?.relatedPlaylists?.uploads;
+  if (!uploadsPlaylistId) {
+    throw new Error(`Cannot resolve uploadsPlaylistId for @${handle}`);
+  }
+
+  await ref.set({
+    channelId,
+    uploadsPlaylistId,
+    cachedAt: Timestamp.now(),
+  } satisfies StreamerMeta);
+
+  return {channelId, uploadsPlaylistId};
+}
+
+// ---- playlistItems.list で最新動画 ID を取得（1 unit）----
+// search.list(100 unit) の代わりにこちらを使う
+async function fetchUploadedVideoIds(
+  apiKey: string,
+  uploadsPlaylistId: string,
+  maxResults = 10
+): Promise<string[]> {
+  const url =
+    "https://www.googleapis.com/youtube/v3/playlistItems" +
+    `?part=snippet&playlistId=${encodeURIComponent(uploadsPlaylistId)}` +
+    `&maxResults=${maxResults}&key=${encodeURIComponent(apiKey)}`;
+
+  const data = await ytGetJson<{
+    items?: Array<{snippet?: {resourceId?: {videoId?: string}}}>;
+  }>(url);
+
   const ids =
     data.items
-      ?.map((it) => it.id.videoId)
+      ?.map((it) => it.snippet?.resourceId?.videoId)
       .filter((v): v is string => !!v) ?? [];
+
   return Array.from(new Set(ids));
 }
 
-async function fetchVideoDetails(apiKey: string, videoIds: string[]): Promise<YouTubeVideosItem[]> {
+// ---- videos.list で詳細取得（件数 ÷ 50 unit）----
+async function fetchVideoDetails(
+  apiKey: string,
+  videoIds: string[]
+): Promise<YouTubeVideosItem[]> {
   if (videoIds.length === 0) return [];
 
-  // videos.list supports up to 50 ids
   const chunks: string[][] = [];
-  for (let i = 0; i < videoIds.length; i += 50) chunks.push(videoIds.slice(i, i + 50));
+  for (let i = 0; i < videoIds.length; i += 50) {
+    chunks.push(videoIds.slice(i, i + 50));
+  }
 
   const all: YouTubeVideosItem[] = [];
   for (const chunk of chunks) {
     const url =
       "https://www.googleapis.com/youtube/v3/videos" +
-      `?part=snippet,liveStreamingDetails,status&id=${encodeURIComponent(chunk.join(","))}` +
+      `?part=snippet,liveStreamingDetails,status` +
+      `&id=${encodeURIComponent(chunk.join(","))}` +
       `&key=${encodeURIComponent(apiKey)}`;
 
-    const data = await ytGetJson<{ items?: YouTubeVideosItem[] }>(url);
+    const data = await ytGetJson<{items?: YouTubeVideosItem[]}>(url);
     all.push(...(data.items ?? []));
   }
   return all;
 }
 
-// Firestore stream doc shape (partial)
-type StreamDoc = {
-  streamerId: string;
-  title: string;
-  startAt: FirebaseFirestore.Timestamp; // planned start
-  youtubeVideoId?: string | null;
-  youtubeWatchUrl?: string | null;
-  archiveUrl?: string | null;
-  status?: string | null;
-  syncedStartAt?: FirebaseFirestore.Timestamp | null;
-  endAt?: FirebaseFirestore.Timestamp | null;
-  updatedAt?: FirebaseFirestore.Timestamp | null;
-};
-
-async function loadPlannedStreams(): Promise<Array<{ id: string; data: StreamDoc }>> {
-  // Look at near-term window to reduce work:
-  // planned start between -1 day and +14 days
+// ---- Firestore から近日の配信枠を取得 ----
+async function loadPlannedStreams(): Promise<Array<{id: string; data: StreamDoc}>> {
   const now = new Date();
   const from = new Date(now.getTime() - 24 * 60 * 60 * 1000);
   const to = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000);
@@ -149,11 +205,11 @@ function deriveStatus(v: YouTubeVideosItem): "scheduled" | "live" | "ended" {
   const d = v.liveStreamingDetails;
   if (d?.actualEndTime) return "ended";
   if (d?.actualStartTime) return "live";
-  // fallback
   if (v.snippet?.liveBroadcastContent === "live") return "live";
   return "scheduled";
 }
 
+// ---- メイン scheduled function ----
 export const syncYoutube = onSchedule(
   {
     schedule: "every 15 minutes",
@@ -164,91 +220,102 @@ export const syncYoutube = onSchedule(
   async () => {
     const apiKey = YOUTUBE_API_KEY.value();
 
-    // 1) Resolve channelIds
-    const channelIdsByStreamer: Record<string, string> = {};
+    // 1) channelId / uploadsPlaylistId を解決（Firestore キャッシュ優先）
+    const metaByStreamer: Record<string, {channelId: string; uploadsPlaylistId: string}> = {};
     for (const s of STREAMERS) {
-      channelIdsByStreamer[s.id] = await resolveChannelIdForHandle(apiKey, s.handle);
+      metaByStreamer[s.id] = await resolveStreamerMeta(apiKey, s.id, s.handle);
     }
 
-    // 2) Collect candidate videos per streamer (upcoming+live)
+    // 2) playlistItems で各ストリーマーの最新動画を取得（1 unit × 4 人）
+    //    liveBroadcastContent が upcoming / live のものだけ残す
     const candidatesByStreamer: Record<string, YouTubeVideosItem[]> = {};
     for (const s of STREAMERS) {
-      const channelId = channelIdsByStreamer[s.id];
+      const {uploadsPlaylistId} = metaByStreamer[s.id];
 
-      const upcomingIds = await searchVideos(apiKey, channelId, "upcoming");
-      const liveIds = await searchVideos(apiKey, channelId, "live");
-      const ids = Array.from(new Set([...upcomingIds, ...liveIds]));
+      // まず ID だけ取得（1 unit）
+      const videoIds = await fetchUploadedVideoIds(apiKey, uploadsPlaylistId, 10);
 
-      const details = await fetchVideoDetails(apiKey, ids);
+      // 詳細を一括取得（1 unit / 最大 50 件）
+      const details = await fetchVideoDetails(apiKey, videoIds);
 
-      // Keep only videos that have scheduledStartTime (needed for matching)
-      candidatesByStreamer[s.id] = details.filter(
-        (v) => !!v.liveStreamingDetails?.scheduledStartTime || !!v.liveStreamingDetails?.actualStartTime
+      // upcoming または live のみに絞る
+      candidatesByStreamer[s.id] = details.filter((v) => {
+        const lbc = v.snippet?.liveBroadcastContent;
+        return lbc === "upcoming" || lbc === "live";
+      });
+
+      console.log(
+        `[sync] ${s.id}: candidates=${candidatesByStreamer[s.id].length}`
       );
     }
 
-    // 3) Load streams from Firestore
+    // 3) Firestore から近日の配信枠を取得
     const streams = await loadPlannedStreams();
 
-    // 4) Match planned streams without youtubeVideoId
-    // and also sync streams with youtubeVideoId
+    // 4) マッチング & ステータス更新
     const batch = db.batch();
     let touched = 0;
 
     for (const s of streams) {
       const ref = db.collection("streams").doc(s.id);
       const data = s.data;
-
       const streamerId = data.streamerId as StreamerId;
       const plannedStart = data.startAt.toDate();
-      console.log(
-        `[syncYoutube] ${s.id} streamerId=${streamerId} candidates=${(candidatesByStreamer[streamerId] ?? []).length}`
-      );
 
-      // A) If already linked -> sync status/time/title/end/archive
+      // A) 既にリンク済み → ステータス・タイトル・終了時刻を同期
       if (data.youtubeVideoId) {
-        console.log('[syncYoutube] video', {
+        // ← バグ修正: v を宣言してから使う
+        const [v] = await fetchVideoDetails(apiKey, [data.youtubeVideoId]);
+        if (!v) continue;
+
+        const d = v.liveStreamingDetails;
+
+        console.log("[sync] already linked", {
           streamId: s.id,
           videoId: v.id,
           scheduled: d?.scheduledStartTime,
           actualStart: d?.actualStartTime,
           actualEnd: d?.actualEndTime,
         });
-        const [v] = await fetchVideoDetails(apiKey, [data.youtubeVideoId]);
-        if (!v) continue;
 
-        const d = v.liveStreamingDetails;
-        const patch: Record<string, any> = {
+        const patch: Record<string, unknown> = {
           status: deriveStatus(v),
           youtubeWatchUrl: watchUrl(v.id),
-          archiveUrl: watchUrl(v.id), // same watch URL works as archive usually
+          archiveUrl: watchUrl(v.id),
           updatedAt: Timestamp.now(),
         };
 
         if (v.snippet?.title) patch.title = v.snippet.title;
-        if (d?.scheduledStartTime) patch.syncedStartAt = Timestamp.fromDate(new Date(d.scheduledStartTime));
-        if (d?.actualEndTime) patch.endAt = Timestamp.fromDate(new Date(d.actualEndTime));
+        if (d?.scheduledStartTime) {
+          patch.syncedStartAt = Timestamp.fromDate(new Date(d.scheduledStartTime));
+        }
+        if (d?.actualEndTime) {
+          patch.endAt = Timestamp.fromDate(new Date(d.actualEndTime));
+        }
 
         batch.update(ref, patch);
         touched++;
         continue;
       }
 
-      // B) Not linked -> auto-link if exactly 1 candidate in time window
+      // B) 未リンク → 時間窓内に候補が 1 件だけなら自動リンク
       const candidates = candidatesByStreamer[streamerId] ?? [];
       const matched = candidates.filter((v) => {
         const d = v.liveStreamingDetails;
         const ts = d?.scheduledStartTime ?? d?.actualStartTime;
         if (!ts) return false;
-        const start = new Date(ts);
-        return minutesDiff(start, plannedStart) <= MATCH_WINDOW_MINUTES;
+        return minutesDiff(new Date(ts), plannedStart) <= MATCH_WINDOW_MINUTES;
       });
+
+      console.log(
+        `[sync] unlinked ${s.id}: matched=${matched.length}`
+      );
 
       if (matched.length === 1) {
         const v = matched[0];
         const d = v.liveStreamingDetails;
 
-        const patch: Record<string, any> = {
+        const patch: Record<string, unknown> = {
           youtubeVideoId: v.id,
           youtubeWatchUrl: watchUrl(v.id),
           status: deriveStatus(v),
@@ -256,17 +323,17 @@ export const syncYoutube = onSchedule(
         };
 
         if (v.snippet?.title) patch.title = v.snippet.title;
-        if (d?.scheduledStartTime) patch.syncedStartAt = Timestamp.fromDate(new Date(d.scheduledStartTime));
+        if (d?.scheduledStartTime) {
+          patch.syncedStartAt = Timestamp.fromDate(new Date(d.scheduledStartTime));
+        }
 
         batch.update(ref, patch);
         touched++;
       }
     }
 
-    if (touched > 0) {
-      await batch.commit();
-    }
-
+    if (touched > 0) await batch.commit();
     console.log(`syncYoutube done. updatedDocs=${touched}`);
   }
 );
+
