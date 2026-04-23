@@ -224,6 +224,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                       );
                     }
                   },
+                  onLongPress: (details) async {
+                    final dt = details.date;
+                    if (dt == null) return;
+
+                    await Navigator.of(context).push(
+                      MaterialPageRoute(builder: (_) => AddStreamScreen(initialStartAt: dt)),
+                    );
+                  },
                   monthCellBuilder: (context, details) {
                     // month view のセルの日付
                     final day = DateTime(details.date.year, details.date.month, details.date.day);

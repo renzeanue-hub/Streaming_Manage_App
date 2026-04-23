@@ -207,6 +207,13 @@ export const syncYoutube = onSchedule(
 
       // A) If already linked -> sync status/time/title/end/archive
       if (data.youtubeVideoId) {
+        console.log('[syncYoutube] video', {
+          streamId: s.id,
+          videoId: v.id,
+          scheduled: d?.scheduledStartTime,
+          actualStart: d?.actualStartTime,
+          actualEnd: d?.actualEndTime,
+        });
         const [v] = await fetchVideoDetails(apiKey, [data.youtubeVideoId]);
         if (!v) continue;
 

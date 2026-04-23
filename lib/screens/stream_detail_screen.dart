@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
+import '../models/stream_category.dart';
 
 import '../models/stream_event.dart';
 import '../providers/streams_provider.dart';
@@ -86,7 +87,7 @@ class StreamDetailScreen extends ConsumerWidget {
 
             _chipsSection(
               title: 'カテゴリ',
-              items: event.categories.map((c) => c.name).toList(),
+              items: event.categories.map((c) => c.label).toList(),
             ),
             const SizedBox(height: 12),
             _chipsSection(
