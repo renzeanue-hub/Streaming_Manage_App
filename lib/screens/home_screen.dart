@@ -9,6 +9,7 @@ import '../providers/streams_provider.dart';
 import '../widgets/calendar_header.dart';
 import 'add_stream_screen.dart';
 import 'stream_detail_screen.dart';
+import 'dart:convert';
 
 enum _HomeMenuAction {
   signIn,
@@ -205,17 +206,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                         : null;
 
                     // Appointment tap -> detail
-                    if (app is Appointment && app.notes != null) {
-                      final eventId = app.notes!;
+                    final eventId = _eventIdFromNotes(app?.notes);
+                    if (eventId != null) {
                       final ev = state.streams.where((e) => e.id == eventId).firstOrNull;
                       if (ev != null) {
                         await Navigator.of(context).push(
                           MaterialPageRoute(builder: (_) => StreamDetailScreen(event: ev)),
                         );
+                        return;
                       }
-                      return;
                     }
-
                     // Empty slot tap -> create new with tapped datetime
                     final tapped = details.date;
                     if (tapped != null) {
@@ -224,9 +224,89 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                       );
                     }
                   },
+                  monthCellBuilder: (context, details) {
+                    // month view のセルの日付
+                    final day = DateTime(details.date.year, details.date.month, details.date.day);
+
+                    // 「その日」に重なる配信を拾う（endAt無いのは2時間扱い）
+                    final dayStart = day;
+                    final dayEnd = day.add(const Duration(days: 1));
+
+                    final eventsForDay = filtered.where((e) {
+                      final start = e.startAt;
+                      final end = e.endAt ?? e.startAt.add(const Duration(hours: 2));
+                      // overlap判定: start < dayEnd && end > dayStart
+                      return start.isBefore(dayEnd) && end.isAfter(dayStart);
+                    }).toList();
+
+                    // streamerIdごとにまとめる（一人1本）
+                    final uniqueStreamerIds = <String>{};
+                    for (final e in eventsForDay) {
+                      uniqueStreamerIds.add(e.streamerId);
+                    }
+
+                    // streamerId -> color
+                    Color colorFor(String streamerId) {
+                      final s = state.streamers.where((x) => x.id == streamerId).firstOrNull;
+                      return (s?.color ?? Colors.grey).withOpacity(0.95);
+                    }
+
+                    final ids = uniqueStreamerIds.toList();
+                    // 安定した順序にしたければソート（名前順など）
+                    ids.sort();
+
+                    const maxBars = 4;
+                    final shown = ids.take(maxBars).toList();
+                    final remaining = ids.length - shown.length;
+
+                    final isToday = DateUtils.isSameDay(details.date, DateTime.now());
+
+                    return Container(
+                      padding: const EdgeInsets.all(4),
+                      decoration: BoxDecoration(
+                        border: isToday ? Border.all(color: Theme.of(context).colorScheme.primary, width: 2) : null,
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          // 日付数字
+                          Text(
+                            '${details.date.day}',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: isToday ? FontWeight.w700 : FontWeight.w500,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+
+                          // 配信者カラーの横長バー
+                          for (final streamerId in shown)
+                            Container(
+                              margin: const EdgeInsets.only(top: 3),
+                              height: 7,
+                              width: double.infinity,
+                              decoration: BoxDecoration(
+                                color: colorFor(streamerId),
+                                borderRadius: BorderRadius.circular(3),
+                              ),
+                            ),
+
+                          if (remaining > 0) ...[
+                            const SizedBox(height: 2),
+                            Text(
+                              '+$remaining',
+                              style: const TextStyle(fontSize: 10, color: Colors.black54),
+                            ),
+                          ],
+                        ],
+                      ),
+                    );
+                  },
                   appointmentBuilder: (context, details) {
                     final a = details.appointments.first as Appointment;
-                    return _AppointmentTile(appointment: a);
+                    final tags = _tagsFromNotes(a.notes);
+                    return _AppointmentTile(appointment: a, tags: tags);
                   },
                 ),
               ),
@@ -235,6 +315,32 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         );
       },
     );
+  }
+
+  String? _eventIdFromNotes(String? notes) {
+    if (notes == null) return null;
+    try {
+      final m = jsonDecode(notes) as Map<String, dynamic>;
+      final id = m['id'];
+      return id is String ? id : null;
+    } catch (_) {
+      // 旧形式（notesがidだけ）の後方互換
+      return notes;
+    }
+  }
+
+  List<String> _tagsFromNotes(String? notes) {
+    if (notes == null) return const [];
+    try {
+      final m = jsonDecode(notes) as Map<String, dynamic>;
+      final raw = m['tags'];
+      if (raw is List) {
+        return raw.map((x) => x.toString()).where((s) => s.trim().isNotEmpty).toList();
+      }
+      return const [];
+    } catch (_) {
+      return const [];
+    }
   }
 
   List<StreamEvent> _applyFilters(
@@ -256,12 +362,17 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
     final end = e.endAt ?? e.startAt.add(const Duration(hours: 2));
 
+    final notes = jsonEncode({
+      'id': e.id,
+      'tags': e.tags.take(3).toList(),
+    });
+
     return Appointment(
       startTime: e.startAt,
       endTime: end,
       subject: '${e.streamerNameSnapshot}\n${e.title}',
       color: color.withOpacity(0.92),
-      notes: e.id,
+      notes: notes,
       isAllDay: false,
     );
   }
@@ -274,9 +385,13 @@ class _StreamCalendarDataSource extends CalendarDataSource {
 }
 
 class _AppointmentTile extends StatelessWidget {
-  const _AppointmentTile({required this.appointment});
+  const _AppointmentTile({
+    required this.appointment,
+    this.tags = const [],
+  });
 
   final Appointment appointment;
+  final List<String> tags;
 
   @override
   Widget build(BuildContext context) {
@@ -289,16 +404,51 @@ class _AppointmentTile extends StatelessWidget {
       ),
       child: DefaultTextStyle(
         style: const TextStyle(color: Colors.white, fontSize: 12, height: 1.2),
-        child: Text(
-          appointment.subject,
-          maxLines: 3,
-          overflow: TextOverflow.ellipsis,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // まず本文（配信者名＋タイトル）
+            Expanded(
+              child: Text(
+                appointment.subject,
+                maxLines: 3,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+
+            // その下にタグ
+            if (tags.isNotEmpty) ...[
+              const SizedBox(height: 4),
+              Wrap(
+                spacing: 4,
+                runSpacing: 4,
+                children: [
+                  for (final t in tags.take(3))
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withOpacity(0.25),
+                        borderRadius: BorderRadius.circular(999),
+                        border: Border.all(color: Colors.white.withOpacity(0.35), width: 0.6),
+                      ),
+                      child: Text(
+                        t,
+                        style: const TextStyle(
+                          fontSize: 10,
+                          height: 1.1,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ],
+          ],
         ),
       ),
     );
   }
 }
-
 extension _FirstOrNullExt<T> on Iterable<T> {
   T? get firstOrNull => isEmpty ? null : first;
 }

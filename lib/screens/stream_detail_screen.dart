@@ -83,6 +83,18 @@ class StreamDetailScreen extends ConsumerWidget {
             const SizedBox(height: 6),
             Text('開始: ${event.startAt}'),
             const SizedBox(height: 12),
+
+            _chipsSection(
+              title: 'カテゴリ',
+              items: event.categories.map((c) => c.name).toList(),
+            ),
+            const SizedBox(height: 12),
+            _chipsSection(
+              title: 'タグ',
+              items: event.tags,
+            ),
+
+            const SizedBox(height: 12),
             if (event.youtubeWatchUrl != null)
               ListTile(
                 contentPadding: EdgeInsets.zero,
@@ -110,6 +122,32 @@ class StreamDetailScreen extends ConsumerWidget {
           ],
         ),
       ),
+    );
+  }
+
+  Widget _chipsSection({
+    required String title,
+    required List<String> items,
+  }) {
+    if (items.isEmpty) return const SizedBox.shrink();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(title, style: const TextStyle(fontWeight: FontWeight.w700)),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            for (final s in items)
+              Chip(
+                label: Text(s),
+                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
+          ],
+        ),
+      ],
     );
   }
 
