@@ -84,6 +84,10 @@ class StreamDetailScreen extends ConsumerWidget {
             const SizedBox(height: 6),
             Text('開始: ${event.startAt}'),
             const SizedBox(height: 12),
+            Text('終了: ${event.endAt ?? '未定'}'),
+            const SizedBox(height: 12),
+            Text('配信時間: ${event.endAt != null ? event.endAt!.difference(event.startAt) : '未定'}'),
+            const SizedBox(height: 12),
 
             _chipsSection(
               title: 'カテゴリ',

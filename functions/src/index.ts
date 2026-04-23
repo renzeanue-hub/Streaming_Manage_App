@@ -334,6 +334,35 @@ export const syncYoutube = onSchedule(
 
     if (touched > 0) await batch.commit();
     console.log(`syncYoutube done. updatedDocs=${touched}`);
+
+    // C) どの stream にもマッチしなかった候補 → 自動で新規作成
+    const linkedVideoIds = new Set(
+      streams.map((s) => s.data.youtubeVideoId).filter(Boolean)
+    );
+
+    for (const s of STREAMERS) {
+      const candidates = candidatesByStreamer[s.id] ?? [];
+      for (const v of candidates) {
+        if (linkedVideoIds.has(v.id)) continue; // 既にリンク済みはスキップ
+
+        const d = v.liveStreamingDetails;
+        const ts = d?.scheduledStartTime ?? d?.actualStartTime;
+        if (!ts) continue;
+
+        const newRef = db.collection("streams").doc();
+        batch.set(newRef, {
+          streamerId: s.id,
+          title: v.snippet?.title ?? '(タイトル未取得)',
+          startAt: Timestamp.fromDate(new Date(ts)),
+          youtubeVideoId: v.id,
+          youtubeWatchUrl: watchUrl(v.id),
+          status: deriveStatus(v),
+          source: 'youtube_auto', // 自動追加フラグ
+          updatedAt: Timestamp.now(),
+        });
+        touched++;
+      }
+    }
   }
 );
 

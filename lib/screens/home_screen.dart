@@ -27,7 +27,8 @@ class HomeScreen extends ConsumerStatefulWidget {
 }
 
 class _HomeScreenState extends ConsumerState<HomeScreen> {
-  final CalendarController _controller = CalendarController()..view = CalendarView.week;
+  final CalendarController _controller = CalendarController()
+    ..view = CalendarView.week;
 
   @override
   void dispose() {
@@ -63,22 +64,23 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             actions: [
               IconButton(
                 tooltip: '日',
-                onPressed: () => setState(() => _controller.view = CalendarView.day),
+                // FIX: setState 不要、controller に直接セット
+                onPressed: () => _controller.view = CalendarView.day,
                 icon: const Icon(Icons.view_day),
               ),
               IconButton(
                 tooltip: '週',
-                onPressed: () => setState(() => _controller.view = CalendarView.week),
+                onPressed: () => _controller.view = CalendarView.week,
                 icon: const Icon(Icons.view_week),
               ),
               IconButton(
                 tooltip: '月',
-                onPressed: () => setState(() => _controller.view = CalendarView.month),
+                onPressed: () => _controller.view = CalendarView.month,
                 icon: const Icon(Icons.calendar_month),
               ),
               IconButton(
                 tooltip: '今日',
-                onPressed: () => setState(() => _controller.displayDate = DateTime.now()),
+                onPressed: () => _controller.displayDate = DateTime.now(),
                 icon: const Icon(Icons.today),
               ),
               PopupMenuButton<_HomeMenuAction>(
@@ -87,28 +89,29 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   switch (action) {
                     case _HomeMenuAction.signIn:
                       try {
-                        await ref.read(authControllerProvider).signInWithGoogle();
+                        await ref
+                            .read(authControllerProvider)
+                            .signInWithGoogle();
                       } catch (e) {
                         if (!context.mounted) return;
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(content: Text('ログイン失敗: $e')),
                         );
                       }
-                      break;
 
                     case _HomeMenuAction.copyUid:
-                      final user = ref.read(authStateProvider).requireValue;
+                      final user =
+                          ref.read(authStateProvider).requireValue;
                       if (user == null) return;
-                      await Clipboard.setData(ClipboardData(text: user.uid));
+                      await Clipboard.setData(
+                          ClipboardData(text: user.uid));
                       if (!context.mounted) return;
                       ScaffoldMessenger.of(context).showSnackBar(
                         const SnackBar(content: Text('UIDをコピーした')),
                       );
-                      break;
 
                     case _HomeMenuAction.signOut:
                       await ref.read(authControllerProvider).signOut();
-                      break;
 
                     case _HomeMenuAction.notificationSettings:
                       // TODO: 通知設定画面へ push
@@ -116,7 +119,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                       ScaffoldMessenger.of(context).showSnackBar(
                         const SnackBar(content: Text('通知設定は未実装')),
                       );
-                      break;
 
                     case _HomeMenuAction.wallpaperSettings:
                       // TODO: 壁紙設定画面へ push
@@ -124,12 +126,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                       ScaffoldMessenger.of(context).showSnackBar(
                         const SnackBar(content: Text('壁紙設定は未実装')),
                       );
-                      break;
                   }
                 },
                 itemBuilder: (context) {
                   final user = ref.watch(authStateProvider).valueOrNull;
-
                   final items = <PopupMenuEntry<_HomeMenuAction>>[];
 
                   if (user == null) {
@@ -168,7 +168,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             onPressed: () async {
               final base = _controller.displayDate ?? DateTime.now();
               await Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => AddStreamScreen(initialStartAt: base)),
+                MaterialPageRoute(
+                    builder: (_) =>
+                        AddStreamScreen(initialStartAt: base)),
               );
             },
             child: const Icon(Icons.add),
@@ -179,15 +181,18 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 streamers: state.streamers,
                 selectedStreamerIds: state.selectedStreamerIds,
                 selectedCategoryNames: state.selectedCategoryNames,
-                onStreamerFilterChanged: (ids) =>
-                    ref.read(streamsProvider.notifier).setStreamerFilter(ids),
-                onCategoryFilterChanged: (names) =>
-                    ref.read(streamsProvider.notifier).setCategoryFilter(names),
+                onStreamerFilterChanged: (ids) => ref
+                    .read(streamsProvider.notifier)
+                    .setStreamerFilter(ids),
+                onCategoryFilterChanged: (names) => ref
+                    .read(streamsProvider.notifier)
+                    .setCategoryFilter(names),
               ),
               const Divider(height: 1),
               Expanded(
                 child: SfCalendar(
-                  key: ValueKey(_controller.view.toString()),
+                  // FIX: key 削除 — controller で view 管理できるので不要
+                  // ValueKey で毎回 rebuild & スクロールリセットされてた
                   controller: _controller,
                   firstDayOfWeek: 1,
                   timeRegionBuilder: null,
@@ -197,98 +202,109 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     timeIntervalHeight: 56,
                   ),
                   monthViewSettings: const MonthViewSettings(
-                    appointmentDisplayMode: MonthAppointmentDisplayMode.appointment,
+                    appointmentDisplayMode:
+                        MonthAppointmentDisplayMode.appointment,
                   ),
                   dataSource: dataSource,
                   onTap: (details) async {
-                    final app = details.appointments?.isNotEmpty == true
-                        ? details.appointments!.first
-                        : null;
+                    final app =
+                        details.appointments?.isNotEmpty == true
+                            ? details.appointments!.first
+                            : null;
 
-                    // Appointment tap -> detail
                     final eventId = _eventIdFromNotes(app?.notes);
                     if (eventId != null) {
-                      final ev = state.streams.where((e) => e.id == eventId).firstOrNull;
+                      final ev = state.streams
+                          .where((e) => e.id == eventId)
+                          .firstOrNull;
                       if (ev != null) {
                         await Navigator.of(context).push(
-                          MaterialPageRoute(builder: (_) => StreamDetailScreen(event: ev)),
+                          MaterialPageRoute(
+                              builder: (_) =>
+                                  StreamDetailScreen(event: ev)),
                         );
                         return;
                       }
                     }
-                    // Empty slot tap -> create new with tapped datetime
+
                     final tapped = details.date;
                     if (tapped != null) {
                       await Navigator.of(context).push(
-                        MaterialPageRoute(builder: (_) => AddStreamScreen(initialStartAt: tapped)),
+                        MaterialPageRoute(
+                            builder: (_) =>
+                                AddStreamScreen(initialStartAt: tapped)),
                       );
                     }
                   },
                   onLongPress: (details) async {
                     final dt = details.date;
                     if (dt == null) return;
-
                     await Navigator.of(context).push(
-                      MaterialPageRoute(builder: (_) => AddStreamScreen(initialStartAt: dt)),
+                      MaterialPageRoute(
+                          builder: (_) =>
+                              AddStreamScreen(initialStartAt: dt)),
                     );
                   },
                   monthCellBuilder: (context, details) {
-                    // month view のセルの日付
-                    final day = DateTime(details.date.year, details.date.month, details.date.day);
-
-                    // 「その日」に重なる配信を拾う（endAt無いのは2時間扱い）
+                    final day = DateTime(details.date.year,
+                        details.date.month, details.date.day);
                     final dayStart = day;
                     final dayEnd = day.add(const Duration(days: 1));
 
                     final eventsForDay = filtered.where((e) {
                       final start = e.startAt;
-                      final end = e.endAt ?? e.startAt.add(const Duration(hours: 2));
-                      // overlap判定: start < dayEnd && end > dayStart
-                      return start.isBefore(dayEnd) && end.isAfter(dayStart);
+                      final end = e.endAt ??
+                          e.startAt.add(const Duration(hours: 2));
+                      return start.isBefore(dayEnd) &&
+                          end.isAfter(dayStart);
                     }).toList();
 
-                    // streamerIdごとにまとめる（一人1本）
                     final uniqueStreamerIds = <String>{};
                     for (final e in eventsForDay) {
                       uniqueStreamerIds.add(e.streamerId);
                     }
 
-                    // streamerId -> color
                     Color colorFor(String streamerId) {
-                      final s = state.streamers.where((x) => x.id == streamerId).firstOrNull;
-                      return (s?.color ?? Colors.grey).withOpacity(0.95);
+                      final s = state.streamers
+                          .where((x) => x.id == streamerId)
+                          .firstOrNull;
+                      // FIX: withOpacity → withValues (Flutter 3.27+)
+                      return (s?.color ?? Colors.grey)
+                          .withValues(alpha: 0.95);
                     }
 
-                    final ids = uniqueStreamerIds.toList();
-                    // 安定した順序にしたければソート（名前順など）
-                    ids.sort();
-
+                    final ids = uniqueStreamerIds.toList()..sort();
                     const maxBars = 4;
                     final shown = ids.take(maxBars).toList();
                     final remaining = ids.length - shown.length;
-
-                    final isToday = DateUtils.isSameDay(details.date, DateTime.now());
+                    final isToday = DateUtils.isSameDay(
+                        details.date, DateTime.now());
 
                     return Container(
                       padding: const EdgeInsets.all(4),
                       decoration: BoxDecoration(
-                        border: isToday ? Border.all(color: Theme.of(context).colorScheme.primary, width: 2) : null,
+                        border: isToday
+                            ? Border.all(
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .primary,
+                                width: 2)
+                            : null,
                         borderRadius: BorderRadius.circular(6),
                       ),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          // 日付数字
                           Text(
                             '${details.date.day}',
                             style: TextStyle(
                               fontSize: 12,
-                              fontWeight: isToday ? FontWeight.w700 : FontWeight.w500,
+                              fontWeight: isToday
+                                  ? FontWeight.w700
+                                  : FontWeight.w500,
                             ),
                           ),
                           const SizedBox(height: 4),
-
-                          // 配信者カラーの横長バー
                           for (final streamerId in shown)
                             Container(
                               margin: const EdgeInsets.only(top: 3),
@@ -299,12 +315,18 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                                 borderRadius: BorderRadius.circular(3),
                               ),
                             ),
-
                           if (remaining > 0) ...[
                             const SizedBox(height: 2),
+                            // FIX: Colors.black54 → Theme 対応色
                             Text(
                               '+$remaining',
-                              style: const TextStyle(fontSize: 10, color: Colors.black54),
+                              style: TextStyle(
+                                fontSize: 10,
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .onSurface
+                                    .withValues(alpha: 0.5),
+                              ),
                             ),
                           ],
                         ],
@@ -312,9 +334,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     );
                   },
                   appointmentBuilder: (context, details) {
-                    final a = details.appointments.first as Appointment;
+                    final a =
+                        details.appointments.first as Appointment;
                     final tags = _tagsFromNotes(a.notes);
-                    return _AppointmentTile(appointment: a, tags: tags);
+                    return _AppointmentTile(
+                        appointment: a, tags: tags);
                   },
                 ),
               ),
@@ -332,7 +356,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       final id = m['id'];
       return id is String ? id : null;
     } catch (_) {
-      // 旧形式（notesがidだけ）の後方互換
       return notes;
     }
   }
@@ -343,7 +366,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       final m = jsonDecode(notes) as Map<String, dynamic>;
       final raw = m['tags'];
       if (raw is List) {
-        return raw.map((x) => x.toString()).where((s) => s.trim().isNotEmpty).toList();
+        return raw
+            .map((x) => x.toString())
+            .where((s) => s.trim().isNotEmpty)
+            .toList();
       }
       return const [];
     } catch (_) {
@@ -357,7 +383,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     Set<String> categoryNames,
   ) {
     return streams.where((e) {
-      final okStreamer = streamerIds.isEmpty || streamerIds.contains(e.streamerId);
+      final okStreamer =
+          streamerIds.isEmpty || streamerIds.contains(e.streamerId);
       final okCategory = categoryNames.isEmpty ||
           e.categories.any((c) => categoryNames.contains(c.name));
       return okStreamer && okCategory;
@@ -365,9 +392,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   }
 
   Appointment _toAppointment(StreamEvent e, StreamsState state) {
-    final streamer = state.streamers.where((s) => s.id == e.streamerId).firstOrNull;
+    final streamer =
+        state.streamers.where((s) => s.id == e.streamerId).firstOrNull;
     final color = streamer?.color ?? Colors.grey;
-
     final end = e.endAt ?? e.startAt.add(const Duration(hours: 2));
 
     final notes = jsonEncode({
@@ -379,7 +406,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       startTime: e.startAt,
       endTime: end,
       subject: '${e.streamerNameSnapshot}\n${e.title}',
-      color: color.withOpacity(0.92),
+      // FIX: withOpacity → withValues (Flutter 3.27+)
+      color: color.withValues(alpha: 0.92),
       notes: notes,
       isAllDay: false,
     );
@@ -411,11 +439,11 @@ class _AppointmentTile extends StatelessWidget {
         borderRadius: BorderRadius.circular(8),
       ),
       child: DefaultTextStyle(
-        style: const TextStyle(color: Colors.white, fontSize: 12, height: 1.2),
+        style: const TextStyle(
+            color: Colors.white, fontSize: 12, height: 1.2),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // まず本文（配信者名＋タイトル）
             Expanded(
               child: Text(
                 appointment.subject,
@@ -423,8 +451,6 @@ class _AppointmentTile extends StatelessWidget {
                 overflow: TextOverflow.ellipsis,
               ),
             ),
-
-            // その下にタグ
             if (tags.isNotEmpty) ...[
               const SizedBox(height: 4),
               Wrap(
@@ -433,11 +459,16 @@ class _AppointmentTile extends StatelessWidget {
                 children: [
                   for (final t in tags.take(3))
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 6, vertical: 2),
                       decoration: BoxDecoration(
-                        color: Colors.black.withOpacity(0.25),
+                        // FIX: withOpacity → withValues (Flutter 3.27+)
+                        color: Colors.black.withValues(alpha: 0.25),
                         borderRadius: BorderRadius.circular(999),
-                        border: Border.all(color: Colors.white.withOpacity(0.35), width: 0.6),
+                        border: Border.all(
+                          color: Colors.white.withValues(alpha: 0.35),
+                          width: 0.6,
+                        ),
                       ),
                       child: Text(
                         t,
@@ -457,6 +488,5 @@ class _AppointmentTile extends StatelessWidget {
     );
   }
 }
-extension _FirstOrNullExt<T> on Iterable<T> {
-  T? get firstOrNull => isEmpty ? null : first;
-}
+
+// FIX: Dart 2.18+ で Iterable に firstOrNull が標準搭載されたので削除
