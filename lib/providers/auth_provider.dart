@@ -59,6 +59,26 @@ class AuthController {
     await _auth.signOut();
   }
 
+  Future<void> switchAccount() async {
+    if (kIsWeb) {
+      // Web: 一旦サインアウトしてから再度ポップアップ
+      await _auth.signOut();
+      final provider = GoogleAuthProvider()
+        ..addScope('email')
+        ..addScope('profile');
+      // setCustomParameters でアカウント選択を強制
+      provider.setCustomParameters({'prompt': 'select_account'});
+      await _auth.signInWithPopup(provider);
+      await _upsertUserDoc();
+      return;
+    }
+
+    // モバイル: Google側キャッシュをクリアして再サインイン
+    await _google.signOut();
+    await _auth.signOut();
+    await signInWithGoogle();
+  }
+
   Future<void> _upsertUserDoc() async {
     final uid = _auth.currentUser?.uid;
     if (uid == null) return;

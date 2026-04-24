@@ -14,6 +14,7 @@ import 'dart:convert';
 enum _HomeMenuAction {
   signIn,
   copyUid,
+  switchAccount, // 追加
   signOut,
   notificationSettings,
   wallpaperSettings,
@@ -113,6 +114,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                         const SnackBar(content: Text('UIDをコピーした')),
                       );
 
+                    case _HomeMenuAction.switchAccount:
+                      try {
+                        await ref.read(authControllerProvider).switchAccount();
+                      } catch (e) {
+                        if (!context.mounted) return;
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text('切り替え失敗: $e')),
+                        );
+                      }
+
                     case _HomeMenuAction.signOut:
                       await ref.read(authControllerProvider).signOut();
 
@@ -144,6 +155,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     items.add(const PopupMenuItem(
                       value: _HomeMenuAction.copyUid,
                       child: Text('UIDをコピー'),
+                    ));
+                    items.add(const PopupMenuItem(       // 追加
+                      value: _HomeMenuAction.switchAccount,
+                      child: Text('アカウントを切り替え'),
                     ));
                     items.add(const PopupMenuItem(
                       value: _HomeMenuAction.signOut,
