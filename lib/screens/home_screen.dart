@@ -349,11 +349,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     );
                   },
                   appointmentBuilder: (context, details) {
-                    final a =
-                        details.appointments.first as Appointment;
+                    final a = details.appointments.first as Appointment;
                     final tags = _tagsFromNotes(a.notes);
                     return _AppointmentTile(
-                        appointment: a, tags: tags);
+                      appointment: a,
+                      tags: tags,
+                      // 追加
+                      isDay: _controller.view == CalendarView.day,
+                    );
                   },
                 ),
               ),
@@ -439,34 +442,54 @@ class _AppointmentTile extends StatelessWidget {
   const _AppointmentTile({
     required this.appointment,
     this.tags = const [],
+    this.isDay = false, // 追加
   });
 
   final Appointment appointment;
   final List<String> tags;
+  final bool isDay;
 
   @override
   Widget build(BuildContext context) {
+    // 週ビューはコンパクト表示
+    final titleFontSize = isDay ? 12.0 : 10.0;
+
     return Container(
       margin: const EdgeInsets.all(1),
-      padding: const EdgeInsets.all(6),
+      padding: const EdgeInsets.all(4),
       decoration: BoxDecoration(
         color: appointment.color,
         borderRadius: BorderRadius.circular(8),
       ),
       child: DefaultTextStyle(
-        style: const TextStyle(
-            color: Colors.white, fontSize: 12, height: 1.2),
+        style: TextStyle(
+          color: Colors.white,
+          fontSize: titleFontSize,
+          height: 1.2,
+        ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Expanded(
               child: Text(
                 appointment.subject,
-                maxLines: 3,
+                maxLines: isDay ? 3 : 2,
                 overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: titleFontSize,
+                  fontWeight: FontWeight.w600,
+                  shadows: [
+                    Shadow(
+                      color: Colors.black.withValues(alpha: 0.4),
+                      blurRadius: 2,
+                    ),
+                  ],
+                ),
               ),
             ),
-            if (tags.isNotEmpty) ...[
+
+            // タグは日ビューのみ
+            if (isDay && tags.isNotEmpty) ...[
               const SizedBox(height: 4),
               Wrap(
                 spacing: 4,
@@ -477,7 +500,6 @@ class _AppointmentTile extends StatelessWidget {
                       padding: const EdgeInsets.symmetric(
                           horizontal: 6, vertical: 2),
                       decoration: BoxDecoration(
-                        // FIX: withOpacity → withValues (Flutter 3.27+)
                         color: Colors.black.withValues(alpha: 0.25),
                         borderRadius: BorderRadius.circular(999),
                         border: Border.all(
