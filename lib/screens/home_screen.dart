@@ -231,7 +231,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                         await Navigator.of(context).push(
                           MaterialPageRoute(
                               builder: (_) =>
-                                  StreamDetailScreen(event: ev)),
+                                  StreamDetailScreen(eventId: ev.id)),
                         );
                         return;
                       }
