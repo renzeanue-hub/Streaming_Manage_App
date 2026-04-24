@@ -80,7 +80,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               ),
               IconButton(
                 tooltip: '今日',
-                onPressed: () => _controller.displayDate = DateTime.now(),
+                onPressed: () {
+                  _controller.displayDate = DateTime.now();
+                  _controller.view = CalendarView.day;
+                },
                 icon: const Icon(Icons.today),
               ),
               PopupMenuButton<_HomeMenuAction>(
@@ -315,30 +318,32 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                             ),
                           ),
                           const SizedBox(height: 4),
-                          for (final streamerId in shown)
-                            Container(
-                              margin: const EdgeInsets.only(top: 3),
-                              height: 7,
-                              width: double.infinity,
-                              decoration: BoxDecoration(
-                                color: colorFor(streamerId),
-                                borderRadius: BorderRadius.circular(3),
-                              ),
-                            ),
-                          if (remaining > 0) ...[
-                            const SizedBox(height: 2),
-                            // FIX: Colors.black54 → Theme 対応色
-                            Text(
-                              '+$remaining',
-                              style: TextStyle(
-                                fontSize: 10,
-                                color: Theme.of(context)
-                                    .colorScheme
-                                    .onSurface
-                                    .withValues(alpha: 0.5),
-                              ),
-                            ),
-                          ],
+                          Wrap(
+                            spacing: 3,
+                            runSpacing: 2,
+                            children: [
+                              for (final streamerId in shown)
+                                Container(
+                                  width: 8,
+                                  height: 8,
+                                  decoration: BoxDecoration(
+                                    color: colorFor(streamerId),
+                                    shape: BoxShape.circle,
+                                  ),
+                                ),
+                              if (remaining > 0)
+                                Text(
+                                  '+$remaining',
+                                  style: TextStyle(
+                                    fontSize: 9,
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .onSurface
+                                        .withValues(alpha: 0.5),
+                                  ),
+                                ),
+                            ],
+                          ),
                         ],
                       ),
                     );
