@@ -11,11 +11,12 @@ const YOUTUBE_API_KEY = defineSecret("YOUTUBE_API_KEY");
 // ---- Config ----
 type StreamerId = "rara" | "chino" | "neffy" | "vitte";
 
-const STREAMERS: Array<{id: StreamerId; handle: string}> = [
-  {id: "rara", handle: "v-rara"},
-  {id: "chino", handle: "v-chino"},
-  {id: "neffy", handle: "v-neffy"},
-  {id: "vitte", handle: "v-vitte"},
+// STREAMERS
+const STREAMERS: Array<{id: StreamerId; handle: string; displayName: string}> = [
+  {id: "rara", handle: "v-rara", displayName: "RARA"},
+  {id: "chino", handle: "v-chino", displayName: "CHINO"},
+  {id: "neffy", handle: "v-neffy", displayName: "NEFFY"},
+  {id: "vitte", handle: "v-vitte", displayName: "VITTE"},
 ];
 
 const MATCH_WINDOW_MINUTES = 20;
@@ -332,10 +333,7 @@ export const syncYoutube = onSchedule(
       }
     }
 
-    if (touched > 0) await batch.commit();
-    console.log(`syncYoutube done. updatedDocs=${touched}`);
-
-    // C) どの stream にもマッチしなかった候補 → 自動で新規作成
+    // C) 自動新規作成 ← コミット前に処理！
     const linkedVideoIds = new Set(
       streams.map((s) => s.data.youtubeVideoId).filter(Boolean)
     );
@@ -343,8 +341,7 @@ export const syncYoutube = onSchedule(
     for (const s of STREAMERS) {
       const candidates = candidatesByStreamer[s.id] ?? [];
       for (const v of candidates) {
-        if (linkedVideoIds.has(v.id)) continue; // 既にリンク済みはスキップ
-
+        if (linkedVideoIds.has(v.id)) continue;
         const d = v.liveStreamingDetails;
         const ts = d?.scheduledStartTime ?? d?.actualStartTime;
         if (!ts) continue;
@@ -352,17 +349,29 @@ export const syncYoutube = onSchedule(
         const newRef = db.collection("streams").doc();
         batch.set(newRef, {
           streamerId: s.id,
-          title: v.snippet?.title ?? '(タイトル未取得)',
+          streamerNameSnapshot: s.displayName, // ← 追加
+          title: v.snippet?.title ?? "(タイトル未取得)",
           startAt: Timestamp.fromDate(new Date(ts)),
+          endAt: d?.actualEndTime ?
+            Timestamp.fromDate(new Date(d.actualEndTime)) :
+            null,
           youtubeVideoId: v.id,
           youtubeWatchUrl: watchUrl(v.id),
+          archiveUrl: watchUrl(v.id),
           status: deriveStatus(v),
-          source: 'youtube_auto', // 自動追加フラグ
+          categories: [],
+          tags: [],
+          source: "youtube_auto",
           updatedAt: Timestamp.now(),
         });
         touched++;
+        console.log(`[sync] auto-created: ${s.id} "${v.snippet?.title}"`);
       }
     }
+
+    // コミット
+    if (touched > 0) await batch.commit();
+    console.log(`syncYoutube done. updatedDocs=${touched}`);
   }
 );
 
