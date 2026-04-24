@@ -87,7 +87,11 @@ class StreamDetailScreen extends ConsumerWidget {
         padding: const EdgeInsets.all(16),
         child: ListView(
           children: [
-            // ステータスバッジ
+            // サムネイル
+            _ThumbnailSection(videoId: _extractVideoId(event.youtubeWatchUrl)),
+            const SizedBox(height: 12),
+
+            // ステータスバッジ（既存）
             _StatusBadge(status: status),
             const SizedBox(height: 10),
 
@@ -198,6 +202,43 @@ class StreamDetailScreen extends ConsumerWidget {
 // ---- ステータスのenum ----
 enum _StreamStatus { upcoming, live, ended }
 
+// ---- サムネイル ----
+class _ThumbnailSection extends StatelessWidget {
+  const _ThumbnailSection({required this.videoId});
+  final String? videoId;
+
+  @override
+  Widget build(BuildContext context) {
+    if (videoId == null) return const SizedBox.shrink();
+
+    final maxresUrl =
+        'https://img.youtube.com/vi/$videoId/maxresdefault.jpg';
+    final fallbackUrl =
+        'https://img.youtube.com/vi/$videoId/hqdefault.jpg';
+
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(12),
+      child: AspectRatio(
+        aspectRatio: 16 / 9,
+        child: Image.network(
+          maxresUrl,
+          fit: BoxFit.cover,
+          // maxresdefault が存在しない動画はhqdefaultにフォールバック
+          errorBuilder: (_, __, ___) => Image.network(
+            fallbackUrl,
+            fit: BoxFit.cover,
+            errorBuilder: (_, __, ___) => Container(
+              color: Theme.of(context).colorScheme.surfaceVariant,
+              child: const Center(
+                child: Icon(Icons.image_not_supported_outlined, size: 48),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
 // ---- ステータスバッジ ----
 class _StatusBadge extends StatelessWidget {
   const _StatusBadge({required this.status});
@@ -365,4 +406,19 @@ String _formatDuration(Duration d) {
   if (h == 0) return '$m分';
   if (m == 0) return '$h時間';
   return '$h時間$m分';
+}
+// ---- YouTube videoId 抽出 ----
+String? _extractVideoId(String? url) {
+  if (url == null) return null;
+  final uri = Uri.tryParse(url);
+  if (uri == null) return null;
+  // https://www.youtube.com/watch?v=XXXXX
+  if (uri.queryParameters.containsKey('v')) {
+    return uri.queryParameters['v'];
+  }
+  // https://youtu.be/XXXXX
+  if (uri.host == 'youtu.be') {
+    return uri.pathSegments.isNotEmpty ? uri.pathSegments.first : null;
+  }
+  return null;
 }
