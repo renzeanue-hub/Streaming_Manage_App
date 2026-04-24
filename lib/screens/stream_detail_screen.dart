@@ -2,21 +2,27 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
-import '../models/stream_category.dart';
 
 import '../models/stream_event.dart';
 import '../providers/streams_provider.dart';
 import 'add_stream_screen.dart';
+import '../models/stream_category.dart';
 
 class StreamDetailScreen extends ConsumerWidget {
-  const StreamDetailScreen({super.key, required this.event});
+  const StreamDetailScreen({super.key, required this.eventId});
 
-  final StreamEvent event;
+  final String eventId;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final text = _shareText(event);
 
+    final event = ref.watch(
+      streamsProvider.select((s) => s.valueOrNull?.streams
+        .where((e) => e.id == eventId).firstOrNull)
+    );
+    if (event == null) return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    final text = _shareText(event);
+    final status = _resolveStatus(event);
     return Scaffold(
       appBar: AppBar(
         title: const Text('配信詳細'),
@@ -39,7 +45,8 @@ class StreamDetailScreen extends ConsumerWidget {
                 context: context,
                 builder: (_) => AlertDialog(
                   title: const Text('削除する？'),
-                  content: Text('「${event.title}」を削除します。よろしいですか？'),
+                  content:
+                      Text('「${event.title}」を削除します。よろしいですか？'),
                   actions: [
                     TextButton(
                       onPressed: () => Navigator.of(context).pop(false),
@@ -56,7 +63,9 @@ class StreamDetailScreen extends ConsumerWidget {
               if (ok != true) return;
 
               try {
-                await ref.read(streamsProvider.notifier).deleteStream(event.id);
+                await ref
+                    .read(streamsProvider.notifier)
+                    .deleteStream(event.id);
                 if (context.mounted) Navigator.of(context).pop();
               } catch (e) {
                 if (!context.mounted) return;
@@ -78,52 +87,64 @@ class StreamDetailScreen extends ConsumerWidget {
         padding: const EdgeInsets.all(16),
         child: ListView(
           children: [
-            Text(event.title, style: Theme.of(context).textTheme.headlineSmall),
+            // ステータスバッジ
+            _StatusBadge(status: status),
+            const SizedBox(height: 10),
+
+            // タイトル
+            Text(
+              event.title,
+              style: Theme.of(context).textTheme.headlineSmall,
+            ),
             const SizedBox(height: 6),
-            Text('配信者: ${event.streamerNameSnapshot}'),
-            const SizedBox(height: 6),
-            Text('開始: ${event.startAt}'),
-            const SizedBox(height: 12),
-            Text('終了: ${event.endAt ?? '未定'}'),
-            const SizedBox(height: 12),
-            Text('配信時間: ${event.endAt != null ? event.endAt!.difference(event.startAt) : '未定'}'),
+
+            // 配信者
+            Text(
+              '配信者: ${event.streamerNameSnapshot}',
+              style: Theme.of(context).textTheme.bodyMedium,
+            ),
             const SizedBox(height: 12),
 
+            // 時刻情報
+            _TimeInfoCard(event: event),
+            const SizedBox(height: 12),
+
+            // カテゴリ
             _chipsSection(
               title: 'カテゴリ',
               items: event.categories.map((c) => c.label).toList(),
             ),
             const SizedBox(height: 12),
+
+            // タグ
             _chipsSection(
               title: 'タグ',
               items: event.tags,
             ),
-
             const SizedBox(height: 12),
-            if (event.youtubeWatchUrl != null)
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                title: const Text('YouTube'),
-                subtitle: Text(event.youtubeWatchUrl!),
-                trailing: const Icon(Icons.open_in_new),
-                onTap: () async {
-                  final uri = Uri.tryParse(event.youtubeWatchUrl!);
-                  if (uri == null) return;
-                  await launchUrl(uri, mode: LaunchMode.externalApplication);
-                },
+
+            // YouTubeリンク（配信中・予定）
+            // アーカイブと同じURLのときは1行だけ表示
+            if (event.youtubeWatchUrl != null) ...[
+              _LinkTile(
+                icon: Icons.play_circle_outline,
+                label: status == _StreamStatus.ended
+                    ? 'アーカイブを見る'
+                    : 'YouTubeで見る',
+                url: event.youtubeWatchUrl!,
               ),
-            if (event.archiveUrl != null)
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                title: const Text('アーカイブ'),
-                subtitle: Text(event.archiveUrl!),
-                trailing: const Icon(Icons.open_in_new),
-                onTap: () async {
-                  final uri = Uri.tryParse(event.archiveUrl!);
-                  if (uri == null) return;
-                  await launchUrl(uri, mode: LaunchMode.externalApplication);
-                },
+            ],
+
+            // アーカイブが別URLのときだけ追加表示
+            if (event.archiveUrl != null &&
+                event.archiveUrl != event.youtubeWatchUrl) ...[
+              const SizedBox(height: 4),
+              _LinkTile(
+                icon: Icons.archive_outlined,
+                label: 'アーカイブ',
+                url: event.archiveUrl!,
               ),
+            ],
           ],
         ),
       ),
@@ -139,7 +160,8 @@ class StreamDetailScreen extends ConsumerWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(title, style: const TextStyle(fontWeight: FontWeight.w700)),
+        Text(title,
+            style: const TextStyle(fontWeight: FontWeight.w700)),
         const SizedBox(height: 8),
         Wrap(
           spacing: 8,
@@ -156,13 +178,191 @@ class StreamDetailScreen extends ConsumerWidget {
     );
   }
 
+  _StreamStatus _resolveStatus(StreamEvent e) {
+    if (e.status == 'live') return _StreamStatus.live;
+    if (e.status == 'ended') return _StreamStatus.ended;
+    return _StreamStatus.upcoming;
+  }
+
   String _shareText(StreamEvent e) {
     final lines = <String>[
       '${e.streamerNameSnapshot} 配信予定',
       e.title,
-      '開始: ${e.startAt}',
+      '開始: ${_formatDateTime(e.startAt)}',
       if (e.youtubeWatchUrl != null) e.youtubeWatchUrl!,
     ];
     return lines.join('\n');
   }
+}
+
+// ---- ステータスのenum ----
+enum _StreamStatus { upcoming, live, ended }
+
+// ---- ステータスバッジ ----
+class _StatusBadge extends StatelessWidget {
+  const _StatusBadge({required this.status});
+  final _StreamStatus status;
+
+  @override
+  Widget build(BuildContext context) {
+    final (label, bg, fg) = switch (status) {
+      _StreamStatus.live => (
+          'LIVE',
+          const Color(0xFFFCEBEB),
+          const Color(0xFFA32D2D),
+        ),
+      _StreamStatus.upcoming => (
+          '配信予定',
+          const Color(0xFFEEEDFE),
+          const Color(0xFF3C3489),
+        ),
+      _StreamStatus.ended => (
+          '配信終了',
+          const Color(0xFFF0F0F0),
+          const Color(0xFF6B6B6B),
+        ),
+    };
+
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Container(
+        padding:
+            const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        decoration: BoxDecoration(
+          color: bg,
+          borderRadius: BorderRadius.circular(6),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            color: fg,
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ---- 時刻情報カード ----
+class _TimeInfoCard extends StatelessWidget {
+  const _TimeInfoCard({required this.event});
+  final StreamEvent event;
+
+  @override
+  Widget build(BuildContext context) {
+    final start = _formatDateTime(event.startAt);
+    final end = event.endAt != null ? _formatDateTime(event.endAt!) : null;
+    final duration = event.endAt != null
+        ? _formatDuration(event.endAt!.difference(event.startAt))
+        : null;
+
+    return Card(
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        child: Column(
+          children: [
+            _Row(label: '開始', value: start),
+            if (end != null) ...[
+              const SizedBox(height: 6),
+              _Row(label: '終了', value: end),
+            ],
+            if (duration != null) ...[
+              const SizedBox(height: 6),
+              _Row(label: '配信時間', value: duration),
+            ],
+            if (end == null) ...[
+              const SizedBox(height: 6),
+              _Row(label: '終了', value: '未定'),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _Row extends StatelessWidget {
+  const _Row({required this.label, required this.value});
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        SizedBox(
+          width: 72,
+          child: Text(
+            label,
+            style: TextStyle(
+              fontSize: 13,
+              color: Theme.of(context)
+                  .colorScheme
+                  .onSurface
+                  .withValues(alpha: 0.55),
+            ),
+          ),
+        ),
+        Expanded(
+          child: Text(
+            value,
+            style: const TextStyle(
+                fontSize: 13, fontWeight: FontWeight.w500),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// ---- リンクタイル ----
+class _LinkTile extends StatelessWidget {
+  const _LinkTile({
+    required this.icon,
+    required this.label,
+    required this.url,
+  });
+  final IconData icon;
+  final String label;
+  final String url;
+
+  @override
+  Widget build(BuildContext context) {
+    return FilledButton.tonalIcon(
+      icon: Icon(icon, size: 18),
+      label: Text(label),
+      style: FilledButton.styleFrom(
+        minimumSize: const Size.fromHeight(48),
+        alignment: Alignment.centerLeft,
+      ),
+      onPressed: () async {
+        final uri = Uri.tryParse(url);
+        if (uri == null) return;
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      },
+    );
+  }
+}
+
+// ---- 日時フォーマット ----
+// intl パッケージなしでシンプルに整形
+String _formatDateTime(DateTime dt) {
+  final y = dt.year;
+  final mo = dt.month.toString().padLeft(2, '0');
+  final d = dt.day.toString().padLeft(2, '0');
+  final h = dt.hour.toString().padLeft(2, '0');
+  final mi = dt.minute.toString().padLeft(2, '0');
+  return '$y/$mo/$d $h:$mi';
+}
+
+// "2:30:00.000000" → "2時間30分"
+String _formatDuration(Duration d) {
+  final h = d.inHours;
+  final m = d.inMinutes.remainder(60);
+  if (h == 0) return '$m分';
+  if (m == 0) return '$h時間';
+  return '$h時間$m分';
 }

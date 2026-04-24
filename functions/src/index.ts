@@ -189,7 +189,7 @@ async function fetchVideoDetails(
 // ---- Firestore から近日の配信枠を取得 ----
 async function loadPlannedStreams(): Promise<Array<{id: string; data: StreamDoc}>> {
   const now = new Date();
-  const from = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+  const from = new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000);
   const to = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000);
 
   const snap = await db

@@ -207,11 +207,21 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   ),
                   dataSource: dataSource,
                   onTap: (details) async {
+                    // 月ビュー: セルタップ → その日の日表示に切り替え
+                    // 配信詳細リンクは月ビューでは不要（バーで存在は示せてる）
+                    if (_controller.view == CalendarView.month) {
+                      final tapped = details.date;
+                      if (tapped != null) {
+                        _controller.displayDate = tapped;
+                        _controller.view = CalendarView.day;
+                      }
+                      return;
+                    }
+                    // 週・日ビュー: 配信ブロックタップ → 詳細画面
                     final app =
                         details.appointments?.isNotEmpty == true
                             ? details.appointments!.first
                             : null;
-
                     final eventId = _eventIdFromNotes(app?.notes);
                     if (eventId != null) {
                       final ev = state.streams
@@ -226,7 +236,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                         return;
                       }
                     }
-
+                    // 空きスロットタップ → 新規追加
                     final tapped = details.date;
                     if (tapped != null) {
                       await Navigator.of(context).push(
