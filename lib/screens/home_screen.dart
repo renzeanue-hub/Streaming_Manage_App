@@ -203,7 +203,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   ),
                   monthViewSettings: const MonthViewSettings(
                     appointmentDisplayMode:
-                        MonthAppointmentDisplayMode.appointment,
+                        MonthAppointmentDisplayMode.none,
                   ),
                   dataSource: dataSource,
                   onTap: (details) async {
