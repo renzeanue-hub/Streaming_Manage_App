@@ -7,6 +7,8 @@ import '../models/stream_event.dart';
 import '../providers/streams_provider.dart';
 import 'add_stream_screen.dart';
 import '../models/stream_category.dart';
+import '../models/stream_status.dart';
+
 
 class StreamDetailScreen extends ConsumerWidget {
   const StreamDetailScreen({super.key, required this.eventId});
@@ -22,7 +24,7 @@ class StreamDetailScreen extends ConsumerWidget {
     );
     if (event == null) return const Scaffold(body: Center(child: CircularProgressIndicator()));
     final text = _shareText(event);
-    final status = _resolveStatus(event);
+    final status = event.status;
     return Scaffold(
       appBar: AppBar(
         title: const Text('配信詳細'),
@@ -132,7 +134,7 @@ class StreamDetailScreen extends ConsumerWidget {
             if (event.youtubeWatchUrl != null) ...[
               _LinkTile(
                 icon: Icons.play_circle_outline,
-                label: status == _StreamStatus.ended
+                label: status == StreamStatus.ended
                     ? 'アーカイブを見る'
                     : 'YouTubeで見る',
                 url: event.youtubeWatchUrl!,
@@ -182,25 +184,14 @@ class StreamDetailScreen extends ConsumerWidget {
     );
   }
 
-  _StreamStatus _resolveStatus(StreamEvent e) {
-    if (e.status == 'live') return _StreamStatus.live;
-    if (e.status == 'ended') return _StreamStatus.ended;
-    return _StreamStatus.upcoming;
-  }
-
   String _shareText(StreamEvent e) {
     final lines = <String>[
-      '${e.streamerNameSnapshot} 配信予定',
       e.title,
-      '開始: ${_formatDateTime(e.startAt)}',
       if (e.youtubeWatchUrl != null) e.youtubeWatchUrl!,
     ];
     return lines.join('\n');
   }
 }
-
-// ---- ステータスのenum ----
-enum _StreamStatus { upcoming, live, ended }
 
 // ---- サムネイル ----
 class _ThumbnailSection extends StatelessWidget {
@@ -242,22 +233,22 @@ class _ThumbnailSection extends StatelessWidget {
 // ---- ステータスバッジ ----
 class _StatusBadge extends StatelessWidget {
   const _StatusBadge({required this.status});
-  final _StreamStatus status;
+  final StreamStatus status; // ← StreamStatus に変更
 
   @override
   Widget build(BuildContext context) {
     final (label, bg, fg) = switch (status) {
-      _StreamStatus.live => (
+      StreamStatus.live => (
           'LIVE',
           const Color(0xFFFCEBEB),
           const Color(0xFFA32D2D),
         ),
-      _StreamStatus.upcoming => (
+      StreamStatus.scheduled => (
           '配信予定',
           const Color(0xFFEEEDFE),
           const Color(0xFF3C3489),
         ),
-      _StreamStatus.ended => (
+      StreamStatus.ended => (
           '配信終了',
           const Color(0xFFF0F0F0),
           const Color(0xFF6B6B6B),

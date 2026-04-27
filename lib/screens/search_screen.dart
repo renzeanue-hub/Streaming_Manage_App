@@ -32,7 +32,8 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
       final kw = _keyword.trim().toLowerCase();
       final okKeyword = kw.isEmpty ||
           e.title.toLowerCase().contains(kw) ||
-          e.streamerNameSnapshot.toLowerCase().contains(kw);
+          e.streamerNameSnapshot.toLowerCase().contains(kw) ||
+          e.tags.any((t) => t.toLowerCase().contains(kw));
 
       // 配信者フィルター
       final okStreamer = _selectedStreamerIds.isEmpty ||

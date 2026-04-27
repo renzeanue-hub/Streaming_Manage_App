@@ -11,7 +11,6 @@ const YOUTUBE_API_KEY = defineSecret("YOUTUBE_API_KEY");
 // ---- Config ----
 type StreamerId = "rara" | "chino" | "neffy" | "vitte";
 
-// STREAMERS
 const STREAMERS: Array<{id: StreamerId; handle: string; displayName: string}> = [
   {id: "rara", handle: "v-rara", displayName: "RARA"},
   {id: "chino", handle: "v-chino", displayName: "CHINO"},
@@ -20,8 +19,6 @@ const STREAMERS: Array<{id: StreamerId; handle: string; displayName: string}> = 
 ];
 
 const MATCH_WINDOW_MINUTES = 20;
-
-// streamer_meta キャッシュの有効期限（24時間）
 const META_TTL_MS = 24 * 60 * 60 * 1000;
 
 // ---- YouTube minimal types ----
@@ -83,8 +80,6 @@ async function ytGetJson<T>(url: string): Promise<T> {
 }
 
 // ---- Firestore キャッシュ付き channelId / uploadsPlaylistId 解決 ----
-// channels.list を 1unit で叩いて channelId と uploadsPlaylistId を両方取得し
-// streamer_meta/{streamerId} にキャッシュ。TTL 内は Firestore から読むだけ（0 unit）
 async function resolveStreamerMeta(
   apiKey: string,
   streamerId: string,
@@ -105,7 +100,6 @@ async function resolveStreamerMeta(
     }
   }
 
-  // キャッシュ切れ or 初回 → YouTube API を叩く（1 unit）
   console.log(`[meta] fetching from YouTube API: @${handle}`);
   const url =
     "https://www.googleapis.com/youtube/v3/channels" +
@@ -138,7 +132,6 @@ async function resolveStreamerMeta(
 }
 
 // ---- playlistItems.list で最新動画 ID を取得（1 unit）----
-// search.list(100 unit) の代わりにこちらを使う
 async function fetchUploadedVideoIds(
   apiKey: string,
   uploadsPlaylistId: string,
@@ -161,7 +154,7 @@ async function fetchUploadedVideoIds(
   return Array.from(new Set(ids));
 }
 
-// ---- videos.list で詳細取得（件数 ÷ 50 unit）----
+// ---- videos.list で詳細取得 ----
 async function fetchVideoDetails(
   apiKey: string,
   videoIds: string[]
@@ -221,30 +214,29 @@ export const syncYoutube = onSchedule(
   async () => {
     const apiKey = YOUTUBE_API_KEY.value();
 
-    // 1) channelId / uploadsPlaylistId を解決（Firestore キャッシュ優先）
+    // 1) channelId / uploadsPlaylistId を解決
     const metaByStreamer: Record<string, {channelId: string; uploadsPlaylistId: string}> = {};
     for (const s of STREAMERS) {
       metaByStreamer[s.id] = await resolveStreamerMeta(apiKey, s.id, s.handle);
     }
 
-    // 2) playlistItems で各ストリーマーの最新動画を取得（1 unit × 4 人）
-    //    liveBroadcastContent が upcoming / live のものだけ残す
+    // 2) playlistItems で各ストリーマーの最新動画を取得
+    //    FIX: upcoming / live に加えて none も含める
+    //    → 配信中に liveBroadcastContent が none になるケースを拾うため
     const candidatesByStreamer: Record<string, YouTubeVideosItem[]> = {};
     for (const s of STREAMERS) {
       const {uploadsPlaylistId} = metaByStreamer[s.id];
-
-      // まず ID だけ取得（1 unit）
       const videoIds = await fetchUploadedVideoIds(apiKey, uploadsPlaylistId, 10);
-
-      // 詳細を一括取得（1 unit / 最大 50 件）
       const details = await fetchVideoDetails(apiKey, videoIds);
 
-      // upcoming または live のみに絞る
+      // liveStreamingDetails があるもの = ライブ配信枠（終了済み含む）
+      // liveBroadcastContent だけで絞ると配信中に none になって消えるので
+      // liveStreamingDetails の有無で判定する
+
       candidatesByStreamer[s.id] = details.filter((v) => {
         const lbc = v.snippet?.liveBroadcastContent;
         return lbc === "upcoming" || lbc === "live";
       });
-
       console.log(
         `[sync] ${s.id}: candidates=${candidatesByStreamer[s.id].length}`
       );
@@ -256,6 +248,7 @@ export const syncYoutube = onSchedule(
     // 4) マッチング & ステータス更新
     const batch = db.batch();
     let touched = 0;
+    const reservedVideoIds = new Set<string>();
 
     for (const s of streams) {
       const ref = db.collection("streams").doc(s.id);
@@ -263,9 +256,8 @@ export const syncYoutube = onSchedule(
       const streamerId = data.streamerId as StreamerId;
       const plannedStart = data.startAt.toDate();
 
-      // A) 既にリンク済み → ステータス・タイトル・終了時刻を同期
+      // A) 既にリンク済み → ステータス・タイトル・開始時刻・終了時刻を同期
       if (data.youtubeVideoId) {
-        // ← バグ修正: v を宣言してから使う
         const [v] = await fetchVideoDetails(apiKey, [data.youtubeVideoId]);
         if (!v) continue;
 
@@ -287,9 +279,16 @@ export const syncYoutube = onSchedule(
         };
 
         if (v.snippet?.title) patch.title = v.snippet.title;
-        if (d?.scheduledStartTime) {
+
+        // FIX: actualStartTime があれば startAt を実際の開始時間で上書き
+        // 遅延開始・早期開始に対応
+        if (d?.actualStartTime) {
+          patch.startAt = Timestamp.fromDate(new Date(d.actualStartTime));
+          patch.syncedStartAt = Timestamp.fromDate(new Date(d.actualStartTime));
+        } else if (d?.scheduledStartTime) {
           patch.syncedStartAt = Timestamp.fromDate(new Date(d.scheduledStartTime));
         }
+
         if (d?.actualEndTime) {
           patch.endAt = Timestamp.fromDate(new Date(d.actualEndTime));
         }
@@ -299,21 +298,28 @@ export const syncYoutube = onSchedule(
         continue;
       }
 
-      // B) 未リンク → 時間窓内に候補が 1 件だけなら自動リンク
+      // B) 未リンク → 時間窓内の候補から最も近いものを採用
+      // FIX: matched.length === 1 のみ → 最近傍を採用に変更
       const candidates = candidatesByStreamer[streamerId] ?? [];
-      const matched = candidates.filter((v) => {
-        const d = v.liveStreamingDetails;
-        const ts = d?.scheduledStartTime ?? d?.actualStartTime;
-        if (!ts) return false;
-        return minutesDiff(new Date(ts), plannedStart) <= MATCH_WINDOW_MINUTES;
-      });
+      const matched = candidates
+        .map((v) => {
+          const d = v.liveStreamingDetails;
+          const ts = d?.scheduledStartTime ?? d?.actualStartTime;
+          if (!ts) return null;
+          const diff = minutesDiff(new Date(ts), plannedStart);
+          if (diff > MATCH_WINDOW_MINUTES) return null;
+          return {v, diff};
+        })
+        .filter((x): x is {v: YouTubeVideosItem; diff: number} => x !== null)
+        .sort((a, b) => a.diff - b.diff);
 
-      console.log(
-        `[sync] unlinked ${s.id}: matched=${matched.length}`
-      );
+      // マッチした動画は予約済みとしてCブロックで重複作成しない
+      matched.forEach(({v}) => reservedVideoIds.add(v.id));
 
-      if (matched.length === 1) {
-        const v = matched[0];
+      console.log(`[sync] unlinked ${s.id}: matched=${matched.length}`);
+
+      if (matched.length > 0) {
+        const {v} = matched[0]; // 最も近いものを採用
         const d = v.liveStreamingDetails;
 
         const patch: Record<string, unknown> = {
@@ -324,7 +330,12 @@ export const syncYoutube = onSchedule(
         };
 
         if (v.snippet?.title) patch.title = v.snippet.title;
-        if (d?.scheduledStartTime) {
+
+        // FIX: actualStartTime があれば startAt も更新
+        if (d?.actualStartTime) {
+          patch.startAt = Timestamp.fromDate(new Date(d.actualStartTime));
+          patch.syncedStartAt = Timestamp.fromDate(new Date(d.actualStartTime));
+        } else if (d?.scheduledStartTime) {
           patch.syncedStartAt = Timestamp.fromDate(new Date(d.scheduledStartTime));
         }
 
@@ -333,7 +344,7 @@ export const syncYoutube = onSchedule(
       }
     }
 
-    // C) 自動新規作成 ← コミット前に処理！
+    // C) 自動新規作成: どの stream にもマッチしなかった YouTube 動画
     const linkedVideoIds = new Set(
       streams.map((s) => s.data.youtubeVideoId).filter(Boolean)
     );
@@ -341,15 +352,16 @@ export const syncYoutube = onSchedule(
     for (const s of STREAMERS) {
       const candidates = candidatesByStreamer[s.id] ?? [];
       for (const v of candidates) {
-        if (linkedVideoIds.has(v.id)) continue;
+        if (linkedVideoIds.has(v.id) || reservedVideoIds.has(v.id)) continue;
+
         const d = v.liveStreamingDetails;
-        const ts = d?.scheduledStartTime ?? d?.actualStartTime;
+        const ts = d?.actualStartTime ?? d?.scheduledStartTime;
         if (!ts) continue;
 
         const newRef = db.collection("streams").doc();
         batch.set(newRef, {
           streamerId: s.id,
-          streamerNameSnapshot: s.displayName, // ← 追加
+          streamerNameSnapshot: s.displayName,
           title: v.snippet?.title ?? "(タイトル未取得)",
           startAt: Timestamp.fromDate(new Date(ts)),
           endAt: d?.actualEndTime ?

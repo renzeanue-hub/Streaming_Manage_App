@@ -2,7 +2,7 @@ enum StreamCategory {
   game,
   singing,
   chat,
-  collab,
+  project,
   other,
 }
 
@@ -11,7 +11,7 @@ extension StreamCategoryX on StreamCategory {
         StreamCategory.game => 'ゲーム実況',
         StreamCategory.singing => '歌枠',
         StreamCategory.chat => '雑談',
-        StreamCategory.collab => 'コラボ',
+        StreamCategory.project => '企画',
         StreamCategory.other => 'その他',
       };
 }
