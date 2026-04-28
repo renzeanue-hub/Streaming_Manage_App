@@ -3,48 +3,66 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/stream_event.dart';
 import '../models/stream_category.dart';
+import '../models/stream_status.dart';
 import '../providers/streams_provider.dart';
 import 'stream_detail_screen.dart';
-import '../models/stream_status.dart';
 
 class SearchScreen extends ConsumerStatefulWidget {
-  const SearchScreen({super.key});
+  const SearchScreen({super.key, this.initialTag});
+
+  final String? initialTag;
 
   @override
   ConsumerState<SearchScreen> createState() => _SearchScreenState();
 }
 
-class _SearchScreenState extends ConsumerState<SearchScreen> {
-  final _searchController = TextEditingController();
-  String _keyword = '';
+class _SearchScreenState extends ConsumerState<SearchScreen>
+    with SingleTickerProviderStateMixin {
+  late final TabController _tabController;
+
+  late final TextEditingController _searchController;
+  late String _keyword;
   final Set<String> _selectedStreamerIds = {};
   final Set<String> _selectedCategories = {};
 
   @override
+  void initState() {
+    super.initState();
+    _tabController = TabController(length: 2, vsync: this);
+    _keyword = widget.initialTag ?? '';
+    _searchController = TextEditingController(text: _keyword);
+  }
+
+  @override
   void dispose() {
+    _tabController.dispose();
     _searchController.dispose();
     super.dispose();
   }
 
-  List<StreamEvent> _applyFilters(List<StreamEvent> streams, StreamsState state) {
+  // タグ一覧からタグをタップ → 検索タブにそのタグで飛ぶ
+  void _searchByTag(String tag) {
+    _searchController.text = tag;
+    setState(() => _keyword = tag);
+    _tabController.animateTo(0);
+  }
+
+  List<StreamEvent> _applyFilters(List<StreamEvent> streams) {
     return streams.where((e) {
-      // キーワード: タイトル・配信者名にマッチ
       final kw = _keyword.trim().toLowerCase();
       final okKeyword = kw.isEmpty ||
           e.title.toLowerCase().contains(kw) ||
-          e.streamerNameSnapshot.toLowerCase().contains(kw);
+          e.streamerNameSnapshot.toLowerCase().contains(kw) ||
+          e.tags.any((t) => t.toLowerCase().contains(kw));
 
-      // 配信者フィルター
       final okStreamer = _selectedStreamerIds.isEmpty ||
           _selectedStreamerIds.contains(e.streamerId);
 
-      // カテゴリフィルター
       final okCategory = _selectedCategories.isEmpty ||
           e.categories.any((c) => _selectedCategories.contains(c.name));
 
       return okKeyword && okStreamer && okCategory;
     }).toList()
-      // 日時降順（新しい順）
       ..sort((a, b) => b.startAt.compareTo(a.startAt));
   }
 
@@ -60,146 +78,215 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
         body: Center(child: Text('Load failed: $e')),
       ),
       data: (state) {
-        final filtered = _applyFilters(state.streams, state);
+        final filtered = _applyFilters(state.streams);
+
+        // 全タグを集計（配信数も出す）
+        final tagCount = <String, int>{};
+        for (final e in state.streams) {
+          for (final t in e.tags) {
+            tagCount[t] = (tagCount[t] ?? 0) + 1;
+          }
+        }
+        final sortedTags = tagCount.entries.toList()
+          ..sort((a, b) => b.value.compareTo(a.value)); // 件数降順
 
         return Scaffold(
           appBar: AppBar(
             title: const Text('検索'),
+            bottom: TabBar(
+              controller: _tabController,
+              tabs: const [
+                Tab(text: '検索'),
+                Tab(text: 'タグ一覧'),
+              ],
+            ),
           ),
-          body: Column(
+          body: TabBarView(
+            controller: _tabController,
             children: [
-              // ---- 検索バー ----
-              Padding(
-                padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
-                child: TextField(
-                  controller: _searchController,
-                  decoration: InputDecoration(
-                    hintText: 'タイトル・配信者名で検索',
-                    prefixIcon: const Icon(Icons.search),
-                    suffixIcon: _keyword.isNotEmpty
-                        ? IconButton(
-                            icon: const Icon(Icons.clear),
-                            onPressed: () {
-                              _searchController.clear();
-                              setState(() => _keyword = '');
-                            },
-                          )
-                        : null,
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide.none,
-                    ),
-                    filled: true,
-                  ),
-                  onChanged: (v) => setState(() => _keyword = v),
-                ),
-              ),
-
-              // ---- 配信者フィルター ----
-              if (state.streamers.isNotEmpty)
-                SizedBox(
-                  height: 40,
-                  child: ListView(
-                    scrollDirection: Axis.horizontal,
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
-                    children: state.streamers.map((s) {
-                      final selected = _selectedStreamerIds.contains(s.id);
-                      return Padding(
-                        padding: const EdgeInsets.only(right: 6),
-                        child: FilterChip(
-                          label: Text(s.name),
-                          selected: selected,
-                          selectedColor: s.color.withValues(alpha: 0.25),
-                          checkmarkColor: s.color,
-                          side: BorderSide(
-                            color: selected ? s.color : Colors.transparent,
-                          ),
-                          onSelected: (v) => setState(() {
-                            if (v) {
-                              _selectedStreamerIds.add(s.id);
-                            } else {
-                              _selectedStreamerIds.remove(s.id);
-                            }
-                          }),
+              // ---- 検索タブ ----
+              Column(
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
+                    child: TextField(
+                      controller: _searchController,
+                      decoration: InputDecoration(
+                        hintText: 'タイトル・配信者名・タグで検索',
+                        prefixIcon: const Icon(Icons.search),
+                        suffixIcon: _keyword.isNotEmpty
+                            ? IconButton(
+                                icon: const Icon(Icons.clear),
+                                onPressed: () {
+                                  _searchController.clear();
+                                  setState(() => _keyword = '');
+                                },
+                              )
+                            : null,
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide.none,
                         ),
-                      );
-                    }).toList(),
-                  ),
-                ),
-
-              // ---- カテゴリフィルター ----
-              SizedBox(
-                height: 40,
-                child: ListView(
-                  scrollDirection: Axis.horizontal,
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                  children: StreamCategory.values.map((c) {
-                    final selected = _selectedCategories.contains(c.name);
-                    return Padding(
-                      padding: const EdgeInsets.only(right: 6),
-                      child: FilterChip(
-                        label: Text(c.label),
-                        selected: selected,
-                        onSelected: (v) => setState(() {
-                          if (v) {
-                            _selectedCategories.add(c.name);
-                          } else {
-                            _selectedCategories.remove(c.name);
-                          }
-                        }),
+                        filled: true,
                       ),
-                    );
-                  }).toList(),
-                ),
-              ),
-
-              const Divider(height: 1),
-
-              // ---- 件数 ----
-              Padding(
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 16, vertical: 6),
-                child: Align(
-                  alignment: Alignment.centerLeft,
-                  child: Text(
-                    '${filtered.length}件',
-                    style: Theme.of(context).textTheme.bodySmall,
+                      onChanged: (v) => setState(() => _keyword = v),
+                    ),
                   ),
-                ),
-              ),
 
-              // ---- 結果リスト ----
-              Expanded(
-                child: filtered.isEmpty
-                    ? Center(
-                        child: Text(
-                          '該当する配信がありません',
-                          style: Theme.of(context).textTheme.bodyMedium,
-                        ),
-                      )
-                    : ListView.separated(
-                        padding: const EdgeInsets.fromLTRB(12, 0, 12, 16),
-                        itemCount: filtered.length,
-                        separatorBuilder: (_, __) =>
-                            const SizedBox(height: 8),
-                        itemBuilder: (context, i) {
-                          final ev = filtered[i];
-                          final streamer = state.streamers
-                              .where((s) => s.id == ev.streamerId)
-                              .firstOrNull;
-                          return _StreamResultCard(
-                            event: ev,
-                            streamerColor: streamer?.color ?? Colors.grey,
-                            onTap: () => Navigator.of(context).push(
-                              MaterialPageRoute(
-                                builder: (_) =>
-                                    StreamDetailScreen(eventId: ev.id),
+                  // 配信者フィルター
+                  if (state.streamers.isNotEmpty)
+                    SizedBox(
+                      height: 40,
+                      child: ListView(
+                        scrollDirection: Axis.horizontal,
+                        padding:
+                            const EdgeInsets.symmetric(horizontal: 12),
+                        children: state.streamers.map((s) {
+                          final selected =
+                              _selectedStreamerIds.contains(s.id);
+                          return Padding(
+                            padding: const EdgeInsets.only(right: 6),
+                            child: FilterChip(
+                              label: Text(s.name),
+                              selected: selected,
+                              selectedColor:
+                                  s.color.withValues(alpha: 0.25),
+                              checkmarkColor: s.color,
+                              side: BorderSide(
+                                color: selected
+                                    ? s.color
+                                    : Colors.transparent,
                               ),
+                              onSelected: (v) => setState(() {
+                                if (v) {
+                                  _selectedStreamerIds.add(s.id);
+                                } else {
+                                  _selectedStreamerIds.remove(s.id);
+                                }
+                              }),
                             ),
                           );
-                        },
+                        }).toList(),
                       ),
+                    ),
+
+                  // カテゴリフィルター
+                  SizedBox(
+                    height: 40,
+                    child: ListView(
+                      scrollDirection: Axis.horizontal,
+                      padding:
+                          const EdgeInsets.symmetric(horizontal: 12),
+                      children: StreamCategory.values.map((c) {
+                        final selected =
+                            _selectedCategories.contains(c.name);
+                        return Padding(
+                          padding: const EdgeInsets.only(right: 6),
+                          child: FilterChip(
+                            label: Text(c.label),
+                            selected: selected,
+                            onSelected: (v) => setState(() {
+                              if (v) {
+                                _selectedCategories.add(c.name);
+                              } else {
+                                _selectedCategories.remove(c.name);
+                              }
+                            }),
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                  ),
+
+                  const Divider(height: 1),
+
+                  Padding(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 16, vertical: 6),
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        '${filtered.length}件',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ),
+                  ),
+
+                  Expanded(
+                    child: filtered.isEmpty
+                        ? Center(
+                            child: Text(
+                              '該当する配信がありません',
+                              style:
+                                  Theme.of(context).textTheme.bodyMedium,
+                            ),
+                          )
+                        : ListView.separated(
+                            padding: const EdgeInsets.fromLTRB(
+                                12, 0, 12, 16),
+                            itemCount: filtered.length,
+                            separatorBuilder: (_, __) =>
+                                const SizedBox(height: 8),
+                            itemBuilder: (context, i) {
+                              final ev = filtered[i];
+                              final streamer = state.streamers
+                                  .where((s) => s.id == ev.streamerId)
+                                  .firstOrNull;
+                              return _StreamResultCard(
+                                event: ev,
+                                streamerColor:
+                                    streamer?.color ?? Colors.grey,
+                                onTap: () => Navigator.of(context).push(
+                                  MaterialPageRoute(
+                                    builder: (_) => StreamDetailScreen(
+                                        eventId: ev.id),
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                  ),
+                ],
               ),
+
+              // ---- タグ一覧タブ ----
+              sortedTags.isEmpty
+                  ? Center(
+                      child: Text(
+                        'タグがありません',
+                        style: Theme.of(context).textTheme.bodyMedium,
+                      ),
+                    )
+                  : ListView.builder(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 8),
+                      itemCount: sortedTags.length,
+                      itemBuilder: (context, i) {
+                        final tag = sortedTags[i].key;
+                        final count = sortedTags[i].value;
+                        return ListTile(
+                          leading: const Icon(Icons.tag, size: 18),
+                          title: Text(tag),
+                          trailing: Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 8, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .surfaceContainerHighest,
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Text(
+                              '$count件',
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .bodySmall,
+                            ),
+                          ),
+                          onTap: () => _searchByTag(tag),
+                        );
+                      },
+                    ),
             ],
           ),
         );
@@ -244,7 +331,8 @@ class _StreamResultCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return Card(
       margin: EdgeInsets.zero,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      shape:
+          RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
       child: InkWell(
         borderRadius: BorderRadius.circular(10),
         onTap: onTap,
@@ -252,7 +340,6 @@ class _StreamResultCard extends StatelessWidget {
           padding: const EdgeInsets.all(12),
           child: Row(
             children: [
-              // 配信者カラーの縦ライン
               Container(
                 width: 4,
                 height: 56,
@@ -262,13 +349,10 @@ class _StreamResultCard extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 10),
-
-              // メイン情報
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // タイトル
                     Text(
                       event.title,
                       maxLines: 2,
@@ -279,7 +363,6 @@ class _StreamResultCard extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(height: 4),
-                    // 配信者名 + 日時
                     Row(
                       children: [
                         Text(
@@ -293,17 +376,15 @@ class _StreamResultCard extends StatelessWidget {
                         const SizedBox(width: 8),
                         Text(
                           _formatDateTime(event.startAt),
-                          style: Theme.of(context).textTheme.bodySmall,
+                          style:
+                              Theme.of(context).textTheme.bodySmall,
                         ),
                       ],
                     ),
                   ],
                 ),
               ),
-
               const SizedBox(width: 8),
-
-              // ステータスバッジ
               Container(
                 padding: const EdgeInsets.symmetric(
                     horizontal: 7, vertical: 3),

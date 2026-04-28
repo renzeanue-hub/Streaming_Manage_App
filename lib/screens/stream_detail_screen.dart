@@ -4,9 +4,11 @@ import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../models/stream_event.dart';
+import '../models/stream_status.dart';
+import '../models/stream_category.dart';
 import '../providers/streams_provider.dart';
 import 'add_stream_screen.dart';
-import '../models/stream_category.dart';
+import 'search_screen.dart';
 
 class StreamDetailScreen extends ConsumerWidget {
   const StreamDetailScreen({super.key, required this.eventId});
@@ -15,14 +17,22 @@ class StreamDetailScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-
     final event = ref.watch(
       streamsProvider.select((s) => s.valueOrNull?.streams
-        .where((e) => e.id == eventId).firstOrNull)
+          .where((e) => e.id == eventId)
+          .firstOrNull),
     );
-    if (event == null) return const Scaffold(body: Center(child: CircularProgressIndicator()));
+
+    if (event == null) {
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
+
     final text = _shareText(event);
-    final status = _resolveStatus(event);
+    // FIX: StreamStatus enum で直接比較
+    final status = event.status;
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('配信詳細'),
@@ -45,8 +55,7 @@ class StreamDetailScreen extends ConsumerWidget {
                 context: context,
                 builder: (_) => AlertDialog(
                   title: const Text('削除する？'),
-                  content:
-                      Text('「${event.title}」を削除します。よろしいですか？'),
+                  content: Text('「${event.title}」を削除します。よろしいですか？'),
                   actions: [
                     TextButton(
                       onPressed: () => Navigator.of(context).pop(false),
@@ -88,10 +97,12 @@ class StreamDetailScreen extends ConsumerWidget {
         child: ListView(
           children: [
             // サムネイル
-            _ThumbnailSection(videoId: _extractVideoId(event.youtubeWatchUrl)),
+            _ThumbnailSection(
+                videoId: _extractVideoId(event.youtubeWatchUrl)),
             const SizedBox(height: 12),
 
-            // ステータスバッジ（既存）
+            // ステータスバッジ
+            // FIX: StreamStatus を直接渡す
             _StatusBadge(status: status),
             const SizedBox(height: 10),
 
@@ -113,33 +124,34 @@ class StreamDetailScreen extends ConsumerWidget {
             _TimeInfoCard(event: event),
             const SizedBox(height: 12),
 
-            // カテゴリ
+            // カテゴリ（タップ不可）
             _chipsSection(
               title: 'カテゴリ',
               items: event.categories.map((c) => c.label).toList(),
+              onTap: null,
             ),
             const SizedBox(height: 12),
 
-            // タグ
+            // タグ（タップ → 検索画面にそのタグで飛ぶ）
             _chipsSection(
               title: 'タグ',
               items: event.tags,
+              onTap: (tag) => _navigateToTagSearch(context, tag),
             ),
             const SizedBox(height: 12),
 
-            // YouTubeリンク（配信中・予定）
-            // アーカイブと同じURLのときは1行だけ表示
+            // YouTubeリンク
             if (event.youtubeWatchUrl != null) ...[
               _LinkTile(
                 icon: Icons.play_circle_outline,
-                label: status == _StreamStatus.ended
+                // FIX: StreamStatus.ended で比較
+                label: status == StreamStatus.ended
                     ? 'アーカイブを見る'
                     : 'YouTubeで見る',
                 url: event.youtubeWatchUrl!,
               ),
             ],
 
-            // アーカイブが別URLのときだけ追加表示
             if (event.archiveUrl != null &&
                 event.archiveUrl != event.youtubeWatchUrl) ...[
               const SizedBox(height: 4),
@@ -155,52 +167,118 @@ class StreamDetailScreen extends ConsumerWidget {
     );
   }
 
+  // タグタップ → 検索画面にそのタグで飛ぶ
+  void _navigateToTagSearch(BuildContext context, String tag) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => _TagSearchScreen(initialTag: tag),
+      ),
+    );
+  }
+
   Widget _chipsSection({
     required String title,
     required List<String> items,
+    required void Function(String)? onTap,
   }) {
     if (items.isEmpty) return const SizedBox.shrink();
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(title,
-            style: const TextStyle(fontWeight: FontWeight.w700)),
+        Text(title, style: const TextStyle(fontWeight: FontWeight.w700)),
         const SizedBox(height: 8),
         Wrap(
           spacing: 8,
           runSpacing: 8,
           children: [
             for (final s in items)
-              Chip(
-                label: Text(s),
-                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-              ),
+              onTap != null
+                  ? ActionChip(
+                      label: Text(s),
+                      materialTapTargetSize:
+                          MaterialTapTargetSize.shrinkWrap,
+                      onPressed: () => onTap(s),
+                    )
+                  : Chip(
+                      label: Text(s),
+                      materialTapTargetSize:
+                          MaterialTapTargetSize.shrinkWrap,
+                    ),
           ],
         ),
       ],
     );
   }
 
-  _StreamStatus _resolveStatus(StreamEvent e) {
-    if (e.status == 'live') return _StreamStatus.live;
-    if (e.status == 'ended') return _StreamStatus.ended;
-    return _StreamStatus.upcoming;
-  }
-
+  // FIX: 配信予定などのプレフィックスを削除、タイトルとURLだけ
   String _shareText(StreamEvent e) {
     final lines = <String>[
-      '${e.streamerNameSnapshot} 配信予定',
       e.title,
-      '開始: ${_formatDateTime(e.startAt)}',
       if (e.youtubeWatchUrl != null) e.youtubeWatchUrl!,
     ];
     return lines.join('\n');
   }
 }
 
-// ---- ステータスのenum ----
-enum _StreamStatus { upcoming, live, ended }
+// ---- タグ検索用ラッパー画面 ----
+// SearchScreen に initialTag を渡すためのシンプルなラッパー
+class _TagSearchScreen extends StatelessWidget {
+  const _TagSearchScreen({required this.initialTag});
+  final String initialTag;
+
+  @override
+  Widget build(BuildContext context) {
+    return SearchScreen(initialTag: initialTag);
+  }
+}
+
+// ---- ステータスバッジ ----
+// FIX: _StreamStatus を削除して StreamStatus に統一
+class _StatusBadge extends StatelessWidget {
+  const _StatusBadge({required this.status});
+  final StreamStatus status;
+
+  @override
+  Widget build(BuildContext context) {
+    final (label, bg, fg) = switch (status) {
+      StreamStatus.live => (
+          'LIVE',
+          const Color(0xFFFCEBEB),
+          const Color(0xFFA32D2D),
+        ),
+      StreamStatus.scheduled => (
+          '配信予定',
+          const Color(0xFFEEEDFE),
+          const Color(0xFF3C3489),
+        ),
+      StreamStatus.ended => (
+          '配信終了',
+          const Color(0xFFF0F0F0),
+          const Color(0xFF6B6B6B),
+        ),
+    };
+
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        decoration: BoxDecoration(
+          color: bg,
+          borderRadius: BorderRadius.circular(6),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            color: fg,
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ),
+    );
+  }
+}
 
 // ---- サムネイル ----
 class _ThumbnailSection extends StatelessWidget {
@@ -223,62 +301,16 @@ class _ThumbnailSection extends StatelessWidget {
         child: Image.network(
           maxresUrl,
           fit: BoxFit.cover,
-          // maxresdefault が存在しない動画はhqdefaultにフォールバック
           errorBuilder: (_, __, ___) => Image.network(
             fallbackUrl,
             fit: BoxFit.cover,
             errorBuilder: (_, __, ___) => Container(
-              color: Theme.of(context).colorScheme.surfaceVariant,
+              color: Theme.of(context).colorScheme.surfaceContainerHighest,
               child: const Center(
-                child: Icon(Icons.image_not_supported_outlined, size: 48),
+                child:
+                    Icon(Icons.image_not_supported_outlined, size: 48),
               ),
             ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-// ---- ステータスバッジ ----
-class _StatusBadge extends StatelessWidget {
-  const _StatusBadge({required this.status});
-  final _StreamStatus status;
-
-  @override
-  Widget build(BuildContext context) {
-    final (label, bg, fg) = switch (status) {
-      _StreamStatus.live => (
-          'LIVE',
-          const Color(0xFFFCEBEB),
-          const Color(0xFFA32D2D),
-        ),
-      _StreamStatus.upcoming => (
-          '配信予定',
-          const Color(0xFFEEEDFE),
-          const Color(0xFF3C3489),
-        ),
-      _StreamStatus.ended => (
-          '配信終了',
-          const Color(0xFFF0F0F0),
-          const Color(0xFF6B6B6B),
-        ),
-    };
-
-    return Align(
-      alignment: Alignment.centerLeft,
-      child: Container(
-        padding:
-            const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-        decoration: BoxDecoration(
-          color: bg,
-          borderRadius: BorderRadius.circular(6),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            color: fg,
-            fontSize: 12,
-            fontWeight: FontWeight.w600,
           ),
         ),
       ),
@@ -294,7 +326,8 @@ class _TimeInfoCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final start = _formatDateTime(event.startAt);
-    final end = event.endAt != null ? _formatDateTime(event.endAt!) : null;
+    final end =
+        event.endAt != null ? _formatDateTime(event.endAt!) : null;
     final duration = event.endAt != null
         ? _formatDuration(event.endAt!.difference(event.startAt))
         : null;
@@ -302,7 +335,8 @@ class _TimeInfoCard extends StatelessWidget {
     return Card(
       margin: EdgeInsets.zero,
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        padding:
+            const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         child: Column(
           children: [
             _Row(label: '開始', value: start),
@@ -389,7 +423,6 @@ class _LinkTile extends StatelessWidget {
 }
 
 // ---- 日時フォーマット ----
-// intl パッケージなしでシンプルに整形
 String _formatDateTime(DateTime dt) {
   final y = dt.year;
   final mo = dt.month.toString().padLeft(2, '0');
@@ -399,7 +432,6 @@ String _formatDateTime(DateTime dt) {
   return '$y/$mo/$d $h:$mi';
 }
 
-// "2:30:00.000000" → "2時間30分"
 String _formatDuration(Duration d) {
   final h = d.inHours;
   final m = d.inMinutes.remainder(60);
@@ -407,16 +439,15 @@ String _formatDuration(Duration d) {
   if (m == 0) return '$h時間';
   return '$h時間$m分';
 }
+
 // ---- YouTube videoId 抽出 ----
 String? _extractVideoId(String? url) {
   if (url == null) return null;
   final uri = Uri.tryParse(url);
   if (uri == null) return null;
-  // https://www.youtube.com/watch?v=XXXXX
   if (uri.queryParameters.containsKey('v')) {
     return uri.queryParameters['v'];
   }
-  // https://youtu.be/XXXXX
   if (uri.host == 'youtu.be') {
     return uri.pathSegments.isNotEmpty ? uri.pathSegments.first : null;
   }
