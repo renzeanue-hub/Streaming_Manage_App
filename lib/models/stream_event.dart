@@ -16,11 +16,12 @@ class StreamEvent {
     this.archiveUrl,
     this.status = StreamStatus.scheduled,
     this.note,
+    this.colabIds = const [], // コラボ相手の streamer ID リスト
   }) : id = id ?? const Uuid().v4();
 
   final String id;
 
-  final String streamerId;
+  final String streamerId;           // 枠主
   final String streamerNameSnapshot;
 
   final String title;
@@ -34,8 +35,10 @@ class StreamEvent {
   final String? archiveUrl;
 
   final StreamStatus status;
-
   final String? note;
+
+  /// コラボ相手の streamer ID リスト（空 = ソロ配信）
+  final List<String> colabIds;
 
   StreamEvent copyWith({
     String? streamerId,
@@ -49,6 +52,7 @@ class StreamEvent {
     String? archiveUrl,
     StreamStatus? status,
     String? note,
+    List<String>? colabIds,
   }) {
     return StreamEvent(
       id: id,
@@ -63,6 +67,7 @@ class StreamEvent {
       archiveUrl: archiveUrl ?? this.archiveUrl,
       status: status ?? this.status,
       note: note ?? this.note,
+      colabIds: colabIds ?? this.colabIds,
     );
   }
 }

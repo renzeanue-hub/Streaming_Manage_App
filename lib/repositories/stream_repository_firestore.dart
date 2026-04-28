@@ -9,7 +9,8 @@ class StreamRepositoryFirestore {
 
   final FirebaseFirestore _db;
 
-  CollectionReference<Map<String, dynamic>> get _col => _db.collection('streams');
+  CollectionReference<Map<String, dynamic>> get _col =>
+      _db.collection('streams');
 
   Stream<List<StreamEvent>> watchAll() {
     return _col.orderBy('startAt').snapshots().map((snap) {
@@ -20,18 +21,28 @@ class StreamRepositoryFirestore {
           streamerId: j['streamerId'] as String,
           streamerNameSnapshot: j['streamerNameSnapshot'] as String,
           title: j['title'] as String,
-          startAt: (j['startAt'] as Timestamp).toDate(),
-          endAt: j['endAt'] == null ? null : (j['endAt'] as Timestamp).toDate(),
+          startAt: j['startAt'] == null
+              ? DateTime.now()
+              : (j['startAt'] as Timestamp).toDate(),
+          endAt: j['endAt'] == null
+              ? null
+              : (j['endAt'] as Timestamp).toDate(),
           categories: ((j['categories'] as List?) ?? const [])
               .map((x) => StreamCategory.values.byName(x as String))
               .toList(),
-          tags: ((j['tags'] as List?) ?? const []).map((x) => x.toString()).toList(),
+          tags: ((j['tags'] as List?) ?? const [])
+              .map((x) => x.toString())
+              .toList(),
           youtubeWatchUrl: j['youtubeWatchUrl'] as String?,
           archiveUrl: j['archiveUrl'] as String?,
           status: StreamStatus.values.byName(
             (j['status'] as String?) ?? StreamStatus.scheduled.name,
           ),
           note: j['note'] as String?,
+          // colabIds: フィールドがなければ空リスト（既存docとの後方互換）
+          colabIds: ((j['colabIds'] as List?) ?? const [])
+              .map((x) => x.toString())
+              .toList(),
         );
       }).toList();
     });
@@ -50,6 +61,7 @@ class StreamRepositoryFirestore {
       'archiveUrl': e.archiveUrl,
       'status': e.status.name,
       'note': e.note,
+      'colabIds': e.colabIds,
       'createdBy': uid,
       'updatedBy': uid,
       'createdAt': FieldValue.serverTimestamp(),
@@ -76,18 +88,13 @@ class StreamRepositoryFirestore {
       'archiveUrl': event.archiveUrl,
       'status': event.status.name,
       'note': event.note,
+      'colabIds': event.colabIds,
       'updatedBy': uid,
       'updatedAt': FieldValue.serverTimestamp(),
     });
   }
-  Future<void> delete(
-    String id, {
-    required String uid,
-  }) async {
-    final ref = _db.collection('streams').doc(id);
 
-    // 監査用に残したいなら update+delete の順でもいいけど、
-    // ここは要件通り削除のみ。
-    await ref.delete();
+  Future<void> delete(String id, {required String uid}) async {
+    await _db.collection('streams').doc(id).delete();
   }
 }

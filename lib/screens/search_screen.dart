@@ -90,9 +90,15 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
         final sortedTags = tagCount.entries.toList()
           ..sort((a, b) => b.value.compareTo(a.value)); // 件数降順
 
-        return Scaffold(
+      return Theme(
+        data: Theme.of(context).copyWith(
+          chipTheme: Theme.of(context).chipTheme.copyWith(
+            labelStyle: const TextStyle(fontSize: 12),
+          ),
+        ),
+        child: Scaffold(
           appBar: AppBar(
-            title: const Text('検索'),
+            toolbarHeight: 0,
             bottom: TabBar(
               controller: _tabController,
               tabs: const [
@@ -289,6 +295,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
                     ),
             ],
           ),
+        ),
         );
       },
     );

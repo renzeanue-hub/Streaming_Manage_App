@@ -21,13 +21,18 @@ class CalendarHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SingleChildScrollView(
+    return Theme(
+      data: Theme.of(context).copyWith(
+        chipTheme: Theme.of(context).chipTheme.copyWith(
+          labelStyle: const TextStyle(fontSize: 12),
+        ),
+      ),
+    child: SingleChildScrollView(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       scrollDirection: Axis.horizontal,
       child: Row(
         children: [
           _FilterGroup(
-            title: '配信者',
             child: Wrap(
               spacing: 8,
               runSpacing: 8,
@@ -52,7 +57,6 @@ class CalendarHeader extends StatelessWidget {
           ),
           const SizedBox(width: 14),
           _FilterGroup(
-            title: 'カテゴリ',
             child: Wrap(
               spacing: 8,
               runSpacing: 8,
@@ -76,14 +80,19 @@ class CalendarHeader extends StatelessWidget {
           ),
         ],
       ),
+    )
     );
   }
 }
 
-class _FilterGroup extends StatelessWidget {
-  const _FilterGroup({required this.title, required this.child});
 
-  final String title;
+class _FilterGroup extends StatelessWidget {
+  const _FilterGroup({
+    this.title,
+    required this.child,
+  });
+
+  final String? title;
   final Widget child;
 
   @override
@@ -93,8 +102,10 @@ class _FilterGroup extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(title, style: Theme.of(context).textTheme.labelLarge),
-          const SizedBox(height: 6),
+          if (title != null) ...[
+            Text(title!, style: Theme.of(context).textTheme.labelLarge),
+            const SizedBox(height: 6),
+          ],
           child,
         ],
       ),

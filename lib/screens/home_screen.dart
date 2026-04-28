@@ -366,11 +366,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   appointmentBuilder: (context, details) {
                     final a = details.appointments.first as Appointment;
                     final tags = _tagsFromNotes(a.notes);
+                    final colabColorValue = _colabColorValueFromNotes(a.notes);
                     return _AppointmentTile(
                       appointment: a,
                       tags: tags,
-                      // 追加
                       isDay: _controller.view == CalendarView.day,
+                      colabColorValue: colabColorValue,
                     );
                   },
                 ),
@@ -409,6 +410,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       return const [];
     }
   }
+  int? _colabColorValueFromNotes(String? notes) {
+    if (notes == null) return null;
+    try {
+      final m = jsonDecode(notes) as Map<String, dynamic>;
+      final v = m['colabColorValue'];
+      return v is int ? v : null;
+    } catch (_) {
+      return null;
+    }
+  }
 
   List<StreamEvent> _applyFilters(
     List<StreamEvent> streams,
@@ -430,9 +441,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     final color = streamer?.color ?? Colors.grey;
     final end = e.endAt ?? e.startAt.add(const Duration(hours: 2));
 
+    // コラボ相手の色を notes に埋め込む（左右分割表示用）
+    final colabStreamer = e.colabIds.isNotEmpty
+        ? state.streamers.where((s) => s.id == e.colabIds.first).firstOrNull
+        : null;
+
     final notes = jsonEncode({
       'id': e.id,
       'tags': e.tags.take(3).toList(),
+      if (colabStreamer != null)
+        'colabColorValue': colabStreamer.color.toARGB32(),
     });
 
     return Appointment(
@@ -458,22 +476,40 @@ class _AppointmentTile extends StatelessWidget {
     required this.appointment,
     this.tags = const [],
     this.isDay = false, // 追加
+    this.colabColorValue,
   });
 
   final Appointment appointment;
   final List<String> tags;
   final bool isDay;
+  /// コラボ相手の色 (ARGB32 int)。null = ソロ配信
+  final int? colabColorValue;
 
   @override
   Widget build(BuildContext context) {
     // 週ビューはコンパクト表示
     final titleFontSize = isDay ? 12.0 : 10.0;
+    final hasColab = colabColorValue != null;
+    final mainColor = appointment.color;
+    final colabColor = hasColab
+        ? Color(colabColorValue!).withValues(alpha: 0.92)
+        : null;
+
+    // コラボ時: 左半分=枠主色、右半分=コラボ相手色
+    // ソロ時: 単色
+    final background = hasColab
+        ? LinearGradient(
+            colors: [mainColor, colabColor!],
+            stops: const [0.5, 0.5],
+          )
+        : null;
 
     return Container(
       margin: const EdgeInsets.all(1),
       padding: const EdgeInsets.all(4),
       decoration: BoxDecoration(
-        color: appointment.color,
+        color: hasColab ? null : mainColor,
+        gradient: background,
         borderRadius: BorderRadius.circular(8),
       ),
       child: DefaultTextStyle(

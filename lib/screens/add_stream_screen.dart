@@ -14,9 +14,6 @@ class AddStreamScreen extends ConsumerStatefulWidget {
   });
 
   final StreamEvent? initialEvent;
-
-  /// Opened from calendar empty-cell tap or FAB default.
-  /// Ignored in edit mode.
   final DateTime? initialStartAt;
 
   bool get isEditMode => initialEvent != null;
@@ -37,9 +34,13 @@ class _AddStreamScreenState extends ConsumerState<AddStreamScreen> {
   final List<String> _tags = [];
   String _tagQuery = '';
 
+  // コラボ相手の streamer ID リスト
+  final Set<String> _colabIds = {};
+
   late DateTime _startAt;
 
-  DateTime _roundMinutesTo00(DateTime dt) => DateTime(dt.year, dt.month, dt.day, dt.hour, 0);
+  DateTime _roundMinutesTo00(DateTime dt) =>
+      DateTime(dt.year, dt.month, dt.day, dt.hour, 0);
 
   @override
   void initState() {
@@ -54,6 +55,9 @@ class _AddStreamScreenState extends ConsumerState<AddStreamScreen> {
       _titleController.text = e.title;
       _youtubeController.text = e.youtubeWatchUrl ?? '';
       _startAt = e.startAt;
+      _colabIds
+        ..clear()
+        ..addAll(e.colabIds);
       if (e.categories.isNotEmpty) {
         _category = e.categories.first;
       }
@@ -92,13 +96,11 @@ class _AddStreamScreenState extends ConsumerState<AddStreamScreen> {
           .take(10)
           .toList();
 
-      // 入力中の文字が候補に無いなら「新規追加」枠として先頭に出す
-      final exact = allTagCandidates.any((t) => t.toLowerCase() == lower) ||
+      final exact = allTagCandidates
+              .any((t) => t.toLowerCase() == lower) ||
           _tags.any((t) => t.toLowerCase() == lower);
 
-      if (!exact) {
-        filtered.insert(0, q); // 先頭に「q を追加」を出す
-      }
+      if (!exact) filtered.insert(0, q);
       return filtered;
     }
 
@@ -106,7 +108,6 @@ class _AddStreamScreenState extends ConsumerState<AddStreamScreen> {
       final t = raw.trim();
       if (t.isEmpty) return;
       if (_tags.any((x) => x.toLowerCase() == t.toLowerCase())) return;
-
       setState(() {
         _tags.add(t);
         _tagController.clear();
@@ -114,9 +115,12 @@ class _AddStreamScreenState extends ConsumerState<AddStreamScreen> {
       });
     }
 
-    void removeTag(String t) {
-      setState(() => _tags.remove(t));
-    }
+    void removeTag(String t) => setState(() => _tags.remove(t));
+
+    // コラボ相手の候補: 枠主以外の全ストリーマー
+    final colabCandidates = state.streamers
+        .where((s) => s.id != _selectedStreamerId)
+        .toList();
 
     return Scaffold(
       appBar: AppBar(
@@ -128,8 +132,9 @@ class _AddStreamScreenState extends ConsumerState<AddStreamScreen> {
           key: _formKey,
           child: ListView(
             children: [
+              // ---- 配信者（枠主）----
               DropdownButtonFormField<String>(
-                decoration: const InputDecoration(labelText: '配信者'),
+                decoration: const InputDecoration(labelText: '配信者（枠主）'),
                 value: _selectedStreamerId,
                 items: [
                   for (final s in state.streamers)
@@ -138,16 +143,58 @@ class _AddStreamScreenState extends ConsumerState<AddStreamScreen> {
                       child: Text(s.name),
                     ),
                 ],
-                onChanged: widget.isEditMode ? null : (v) => setState(() => _selectedStreamerId = v),
+                onChanged: widget.isEditMode
+                    ? null
+                    : (v) => setState(() {
+                          _selectedStreamerId = v;
+                          // 枠主が変わったらコラボリストから除外
+                          _colabIds.remove(v);
+                        }),
                 validator: (v) => v == null ? 'メンバーを選択' : null,
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 16),
+
+              // ---- コラボ相手 ----
+              if (_selectedStreamerId != null) ...[
+                Text('コラボ相手（任意）',
+                    style: Theme.of(context).textTheme.titleSmall),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 4,
+                  children: colabCandidates.map((s) {
+                    final selected = _colabIds.contains(s.id);
+                    return FilterChip(
+                      label: Text(s.name),
+                      selected: selected,
+                      selectedColor: s.color.withValues(alpha: 0.25),
+                      checkmarkColor: s.color,
+                      side: BorderSide(
+                        color: selected ? s.color : Colors.transparent,
+                      ),
+                      onSelected: (v) => setState(() {
+                        if (v) {
+                          _colabIds.add(s.id);
+                        } else {
+                          _colabIds.remove(s.id);
+                        }
+                      }),
+                    );
+                  }).toList(),
+                ),
+                const SizedBox(height: 12),
+              ],
+
+              // ---- タイトル ----
               TextFormField(
                 controller: _titleController,
                 decoration: const InputDecoration(labelText: '配信タイトル'),
-                validator: (v) => (v == null || v.trim().isEmpty) ? 'タイトル入れてね' : null,
+                validator: (v) =>
+                    (v == null || v.trim().isEmpty) ? 'タイトル入れてね' : null,
               ),
               const SizedBox(height: 12),
+
+              // ---- 開始時間 ----
               ListTile(
                 contentPadding: EdgeInsets.zero,
                 title: const Text('開始時間'),
@@ -156,8 +203,10 @@ class _AddStreamScreenState extends ConsumerState<AddStreamScreen> {
                 onTap: () async {
                   final date = await showDatePicker(
                     context: context,
-                    firstDate: DateTime.now().subtract(const Duration(days: 365)),
-                    lastDate: DateTime.now().add(const Duration(days: 365 * 3)),
+                    firstDate: DateTime.now()
+                        .subtract(const Duration(days: 365)),
+                    lastDate:
+                        DateTime.now().add(const Duration(days: 365 * 3)),
                     initialDate: _startAt,
                   );
                   if (date == null) return;
@@ -169,11 +218,14 @@ class _AddStreamScreenState extends ConsumerState<AddStreamScreen> {
                   if (time == null) return;
 
                   setState(() {
-                    _startAt = DateTime(date.year, date.month, date.day, time.hour, time.minute);
+                    _startAt = DateTime(date.year, date.month, date.day,
+                        time.hour, time.minute);
                   });
                 },
               ),
               const SizedBox(height: 12),
+
+              // ---- カテゴリ ----
               DropdownButtonFormField<StreamCategory>(
                 decoration: const InputDecoration(labelText: 'カテゴリ'),
                 value: _category,
@@ -184,67 +236,73 @@ class _AddStreamScreenState extends ConsumerState<AddStreamScreen> {
                       child: Text(c.label),
                     ),
                 ],
-                onChanged: (v) => setState(() => _category = v ?? _category),
+                onChanged: (v) =>
+                    setState(() => _category = v ?? _category),
               ),
-
-            const SizedBox(height: 12),
-            Text('タグ', style: Theme.of(context).textTheme.titleSmall),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                for (final t in _tags)
-                  InputChip(
-                    label: Text(t),
-                    onDeleted: () => removeTag(t),
-                  ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            TextField(
-              controller: _tagController,
-              decoration: const InputDecoration(
-                labelText: 'タグを追加',
-                hintText: 'ゲームタイトルや配信内容を表すタグを入れてみましょう',
-              ),
-              textInputAction: TextInputAction.done,
-              onChanged: (v) => setState(() => _tagQuery = v),
-              onSubmitted: (v) => addTag(v),
-            ),
-            Builder(
-              builder: (context) {
-                final items = suggestions();
-                if (items.isEmpty) return const SizedBox.shrink();
-
-                return Padding(
-                  padding: const EdgeInsets.only(top: 8),
-                  child: Material(
-                    elevation: 1,
-                    borderRadius: BorderRadius.circular(12),
-                    child: ListView.separated(
-                      shrinkWrap: true,
-                      physics: const NeverScrollableScrollPhysics(),
-                      itemCount: items.length,
-                      separatorBuilder: (_, __) => const Divider(height: 1),
-                      itemBuilder: (context, i) {
-                        final t = items[i];
-                        final isNew = !allTagCandidates.contains(t);
-
-                        return ListTile(
-                          dense: true,
-                          title: Text(isNew ? '追加: $t' : t),
-                          trailing: const Icon(Icons.add),
-                          onTap: () => addTag(t),
-                        );
-                      },
-                    ),
-                  ),
-                );
-              },
-            ),
 
               const SizedBox(height: 12),
+
+              // ---- タグ ----
+              Text('タグ', style: Theme.of(context).textTheme.titleSmall),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  for (final t in _tags)
+                    InputChip(
+                      label: Text(t),
+                      onDeleted: () => removeTag(t),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: _tagController,
+                decoration: const InputDecoration(
+                  labelText: 'タグを追加',
+                  hintText: 'ゲームタイトルや配信内容を表すタグを入れてみましょう',
+                ),
+                textInputAction: TextInputAction.done,
+                onChanged: (v) => setState(() => _tagQuery = v),
+                onSubmitted: (v) => addTag(v),
+              ),
+              Builder(
+                builder: (context) {
+                  final items = suggestions();
+                  if (items.isEmpty) return const SizedBox.shrink();
+
+                  return Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: Material(
+                      elevation: 1,
+                      borderRadius: BorderRadius.circular(12),
+                      child: ListView.separated(
+                        shrinkWrap: true,
+                        physics: const NeverScrollableScrollPhysics(),
+                        itemCount: items.length,
+                        separatorBuilder: (_, __) =>
+                            const Divider(height: 1),
+                        itemBuilder: (context, i) {
+                          final t = items[i];
+                          final isNew =
+                              !allTagCandidates.contains(t);
+                          return ListTile(
+                            dense: true,
+                            title: Text(isNew ? '追加: $t' : t),
+                            trailing: const Icon(Icons.add),
+                            onTap: () => addTag(t),
+                          );
+                        },
+                      ),
+                    ),
+                  );
+                },
+              ),
+
+              const SizedBox(height: 12),
+
+              // ---- YouTubeリンク ----
               TextFormField(
                 controller: _youtubeController,
                 decoration: const InputDecoration(
@@ -253,29 +311,33 @@ class _AddStreamScreenState extends ConsumerState<AddStreamScreen> {
                 ),
               ),
               const SizedBox(height: 20),
+
+              // ---- 送信 ----
               FilledButton.icon(
                 onPressed: () async {
                   if (!_formKey.currentState!.validate()) return;
 
                   try {
-                    final streamer = state.streamers.firstWhere((s) => s.id == _selectedStreamerId);
+                    final streamer = state.streamers
+                        .firstWhere((s) => s.id == _selectedStreamerId);
 
                     if (widget.isEditMode) {
-                      final base = widget.initialEvent!;
-
-                      final updated = base.copyWith(
+                      final updated = widget.initialEvent!.copyWith(
                         streamerId: streamer.id,
                         streamerNameSnapshot: streamer.name,
                         title: _titleController.text.trim(),
                         startAt: _startAt,
                         categories: [_category],
                         tags: _tags,
-                        youtubeWatchUrl: _youtubeController.text.trim().isEmpty
-                            ? null
-                            : _youtubeController.text.trim(),
+                        colabIds: _colabIds.toList(),
+                        youtubeWatchUrl:
+                            _youtubeController.text.trim().isEmpty
+                                ? null
+                                : _youtubeController.text.trim(),
                       );
-
-                      await ref.read(streamsProvider.notifier).updateStream(updated.id, updated);
+                      await ref
+                          .read(streamsProvider.notifier)
+                          .updateStream(updated.id, updated);
                     } else {
                       final created = StreamEvent(
                         streamerId: streamer.id,
@@ -284,24 +346,32 @@ class _AddStreamScreenState extends ConsumerState<AddStreamScreen> {
                         startAt: _startAt,
                         categories: [_category],
                         tags: _tags,
-                        youtubeWatchUrl: _youtubeController.text.trim().isEmpty
-                            ? null
-                            : _youtubeController.text.trim(),
+                        colabIds: _colabIds.toList(),
+                        youtubeWatchUrl:
+                            _youtubeController.text.trim().isEmpty
+                                ? null
+                                : _youtubeController.text.trim(),
                         status: StreamStatus.scheduled,
                       );
-
-                      await ref.read(streamsProvider.notifier).addStream(created);
+                      await ref
+                          .read(streamsProvider.notifier)
+                          .addStream(created);
                     }
 
                     if (mounted) Navigator.of(context).pop();
                   } catch (e) {
                     if (!context.mounted) return;
                     ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text(widget.isEditMode ? '更新失敗: $e' : '登録失敗: $e')),
+                      SnackBar(
+                        content: Text(widget.isEditMode
+                            ? '更新失敗: $e'
+                            : '登録失敗: $e'),
+                      ),
                     );
                   }
                 },
-                icon: Icon(widget.isEditMode ? Icons.save_as : Icons.save),
+                icon:
+                    Icon(widget.isEditMode ? Icons.save_as : Icons.save),
                 label: Text(widget.isEditMode ? '更新' : '登録'),
               ),
             ],
