@@ -25,12 +25,14 @@ class StreamDetailScreen extends ConsumerWidget {
           .where((e) => e.id == eventId)
           .firstOrNull),
     );
-
     if (event == null) {
       return const Scaffold(
         body: Center(child: CircularProgressIndicator()),
       );
     }
+    final streamers = ref.watch(
+      streamsProvider.select((s) => s.valueOrNull?.streamers ?? [])
+    );
 
     final text = _shareText(event);
     // FIX: StreamStatus enum で直接比較
@@ -120,6 +122,16 @@ class StreamDetailScreen extends ConsumerWidget {
               '配信者: ${event.streamerNameSnapshot}',
               style: Theme.of(context).textTheme.bodyMedium,
             ),
+            const SizedBox(height: 12),
+
+            // コラボ相手
+            if (event.colabIds.isNotEmpty) ...[
+              const SizedBox(height: 4),
+              Text(
+                'コラボ: ${event.colabIds.map((id) => streamers.where((s) => s.id == id).firstOrNull?.name ?? id).join('、')}',
+                style: Theme.of(context).textTheme.bodyMedium,
+              ),
+            ],
             const SizedBox(height: 12),
 
             // 時刻情報

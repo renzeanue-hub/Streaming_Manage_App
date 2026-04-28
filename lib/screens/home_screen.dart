@@ -279,12 +279,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     final dayStart = day;
                     final dayEnd = day.add(const Duration(days: 1));
 
+                    // ✅ 開始時間がその日なら表示
                     final eventsForDay = filtered.where((e) {
-                      final start = e.startAt;
-                      final end = e.endAt ??
-                          e.startAt.add(const Duration(hours: 2));
-                      return start.isBefore(dayEnd) &&
-                          end.isAfter(dayStart);
+                      return DateUtils.isSameDay(e.startAt, details.date);
                     }).toList();
 
                     final uniqueStreamerIds = <String>{};
@@ -367,11 +364,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     final a = details.appointments.first as Appointment;
                     final tags = _tagsFromNotes(a.notes);
                     final colabColorValue = _colabColorValueFromNotes(a.notes);
+                    final eventId = _eventIdFromNotes(a.notes);
+                    // endAt が仮の2時間かどうかを判定
+                    final ev = state.streams.where((e) => e.id == eventId).firstOrNull;
+                    final hasRealEndAt = ev?.endAt != null;
                     return _AppointmentTile(
                       appointment: a,
                       tags: tags,
                       isDay: _controller.view == CalendarView.day,
                       colabColorValue: colabColorValue,
+                      hasRealEndAt: hasRealEndAt,
                     );
                   },
                 ),
@@ -475,9 +477,12 @@ class _AppointmentTile extends StatelessWidget {
   const _AppointmentTile({
     required this.appointment,
     this.tags = const [],
-    this.isDay = false, // 追加
+    this.isDay = false,
     this.colabColorValue,
+    this.hasRealEndAt = true, // 追加
   });
+
+  final bool hasRealEndAt;
 
   final Appointment appointment;
   final List<String> tags;
@@ -487,16 +492,13 @@ class _AppointmentTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // 週ビューはコンパクト表示
-    final titleFontSize = isDay ? 12.0 : 10.0;
+    final titleFontSize = isDay ? 12.0 : 8.0;
     final hasColab = colabColorValue != null;
     final mainColor = appointment.color;
     final colabColor = hasColab
         ? Color(colabColorValue!).withValues(alpha: 0.92)
         : null;
 
-    // コラボ時: 左半分=枠主色、右半分=コラボ相手色
-    // ソロ時: 単色
     final background = hasColab
         ? LinearGradient(
             colors: [mainColor, colabColor!],
@@ -504,7 +506,7 @@ class _AppointmentTile extends StatelessWidget {
           )
         : null;
 
-    return Container(
+    Widget tile = Container(
       margin: const EdgeInsets.all(1),
       padding: const EdgeInsets.all(4),
       decoration: BoxDecoration(
@@ -522,24 +524,56 @@ class _AppointmentTile extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Expanded(
-              child: Text(
-                appointment.subject,
-                maxLines: isDay ? 3 : 2,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontSize: titleFontSize,
-                  fontWeight: FontWeight.w600,
-                  shadows: [
-                    Shadow(
-                      color: Colors.black.withValues(alpha: 0.4),
-                      blurRadius: 2,
-                    ),
-                  ],
-                ),
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  // 高さが小さすぎるときは何も表示しない
+                  if (constraints.maxHeight < 16) return const SizedBox.shrink();
+
+                  final subject = appointment.subject.split('\n');
+                  final streamerName = subject.first;
+                  final title = subject.skip(1).join('\n');
+
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // 名前は常に1行
+                      Text(
+                        streamerName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: titleFontSize - 1,
+                          fontWeight: FontWeight.w500,
+                          shadows: [
+                            Shadow(
+                              color: Colors.black.withValues(alpha: 0.4),
+                              blurRadius: 2,
+                            ),
+                          ],
+                        ),
+                      ),
+                      // タイトルは高さに余裕があるときだけ
+                      if (constraints.maxHeight >= 32)
+                        Text(
+                          title,
+                          maxLines: 3,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: titleFontSize,
+                            fontWeight: FontWeight.w600,
+                            shadows: [
+                              Shadow(
+                                color: Colors.black.withValues(alpha: 0.4),
+                                blurRadius: 2,
+                              ),
+                            ],
+                          ),
+                        ),
+                    ],
+                  );
+                },
               ),
             ),
-
-            // タグは日ビューのみ
             if (isDay && tags.isNotEmpty) ...[
               const SizedBox(height: 4),
               Wrap(
@@ -574,6 +608,23 @@ class _AppointmentTile extends StatelessWidget {
         ),
       ),
     );
+
+    // endAt 未定のときブロック自体を下端に向かってフェードアウト 現在は未使用のため　1.0 1.0
+    // ShaderMask + BlendMode.dstIn でウィジェット自体を透明にする
+    if (!hasRealEndAt) {
+      tile = ShaderMask(
+        shaderCallback: (bounds) => const LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [Colors.white, Colors.transparent],
+          stops: [1.0, 1.0],
+        ).createShader(bounds),
+        blendMode: BlendMode.dstIn,
+        child: tile,
+      );
+    }
+
+    return tile;
   }
 }
 
