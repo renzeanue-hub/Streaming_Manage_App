@@ -9,6 +9,9 @@ import '../models/stream_category.dart';
 import '../providers/streams_provider.dart';
 import 'add_stream_screen.dart';
 import 'search_screen.dart';
+import '../models/stream_category.dart';
+import '../models/stream_status.dart';
+
 
 class StreamDetailScreen extends ConsumerWidget {
   const StreamDetailScreen({super.key, required this.eventId});
@@ -32,7 +35,6 @@ class StreamDetailScreen extends ConsumerWidget {
     final text = _shareText(event);
     // FIX: StreamStatus enum で直接比較
     final status = event.status;
-
     return Scaffold(
       appBar: AppBar(
         title: const Text('配信詳細'),
@@ -233,53 +235,6 @@ class _TagSearchScreen extends StatelessWidget {
   }
 }
 
-// ---- ステータスバッジ ----
-// FIX: _StreamStatus を削除して StreamStatus に統一
-class _StatusBadge extends StatelessWidget {
-  const _StatusBadge({required this.status});
-  final StreamStatus status;
-
-  @override
-  Widget build(BuildContext context) {
-    final (label, bg, fg) = switch (status) {
-      StreamStatus.live => (
-          'LIVE',
-          const Color(0xFFFCEBEB),
-          const Color(0xFFA32D2D),
-        ),
-      StreamStatus.scheduled => (
-          '配信予定',
-          const Color(0xFFEEEDFE),
-          const Color(0xFF3C3489),
-        ),
-      StreamStatus.ended => (
-          '配信終了',
-          const Color(0xFFF0F0F0),
-          const Color(0xFF6B6B6B),
-        ),
-    };
-
-    return Align(
-      alignment: Alignment.centerLeft,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-        decoration: BoxDecoration(
-          color: bg,
-          borderRadius: BorderRadius.circular(6),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            color: fg,
-            fontSize: 12,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 // ---- サムネイル ----
 class _ThumbnailSection extends StatelessWidget {
   const _ThumbnailSection({required this.videoId});
@@ -311,6 +266,52 @@ class _ThumbnailSection extends StatelessWidget {
                     Icon(Icons.image_not_supported_outlined, size: 48),
               ),
             ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+// ---- ステータスバッジ ----
+class _StatusBadge extends StatelessWidget {
+  const _StatusBadge({required this.status});
+  final StreamStatus status; // ← StreamStatus に変更
+
+  @override
+  Widget build(BuildContext context) {
+    final (label, bg, fg) = switch (status) {
+      StreamStatus.live => (
+          'LIVE',
+          const Color(0xFFFCEBEB),
+          const Color(0xFFA32D2D),
+        ),
+      StreamStatus.scheduled => (
+          '配信予定',
+          const Color(0xFFEEEDFE),
+          const Color(0xFF3C3489),
+        ),
+      StreamStatus.ended => (
+          '配信終了',
+          const Color(0xFFF0F0F0),
+          const Color(0xFF6B6B6B),
+        ),
+    };
+
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Container(
+        padding:
+            const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        decoration: BoxDecoration(
+          color: bg,
+          borderRadius: BorderRadius.circular(6),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            color: fg,
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
           ),
         ),
       ),

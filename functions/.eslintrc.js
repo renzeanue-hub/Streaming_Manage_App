@@ -14,5 +14,6 @@ module.exports = {
     "quotes": "off",
     "indent": "off",
     "comma-dangle": "off",
+    "linebreak-style": "off",
   },
 };
